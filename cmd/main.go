@@ -17,6 +17,8 @@ import (
 
 	"github.com/internships-backend/test-backend-bober-17/internal/config"
 	"github.com/internships-backend/test-backend-bober-17/internal/http/handlers"
+	authrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/auth"
+	authservice "github.com/internships-backend/test-backend-bober-17/internal/service/auth"
 )
 
 const (
@@ -64,12 +66,16 @@ func main() {
 
 	logger.Info("migrations applied")
 
-	// TODO: инициализировать репозитории (auth, room, schedule, slot, booking)
-	// TODO: инициализировать сервисы (auth, room, schedule, slot, booking)
-	// TODO: инициализировать ConferenceClient
-	// TODO: передать сервисы в handlers.NewRouter
+	// Репозитории
+	authRepo := authrepo.New(pool)
 
-	router := handlers.NewRouter(cfg.JWTSecret)
+	// Сервисы
+	authSvc := authservice.New(authRepo, cfg.JWTSecret, logger)
+
+	// TODO: инициализировать room, schedule, slot, booking репозитории и сервисы
+	// TODO: инициализировать ConferenceClient
+
+	router := handlers.NewRouter(cfg.JWTSecret, authSvc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,

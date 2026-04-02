@@ -5,7 +5,6 @@ import (
 	"net/http"
 )
 
-// TODO: вынести response-хелперы в internal/http/response, чтобы middleware и handlers использовали одно место
 const forbiddenBody = `{"error":{"code":"FORBIDDEN","message":"forbidden"}}`
 
 func RequireRole(roles ...string) func(http.Handler) http.Handler {

@@ -9,16 +9,20 @@ import (
 	"github.com/internships-backend/test-backend-bober-17/internal/http/middleware"
 )
 
-func NewRouter(jwtSecret string) http.Handler {
+func NewRouter(jwtSecret string, authSvc AuthService) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(chimiddleware.Recoverer)
+
+	auth := newAuthHandler(authSvc)
 
 	// Публичные маршруты — без авторизации
 	r.Get("/", InfoHandler)
 	r.Get("/_info", InfoHandler)
 
-	// TODO: добавить POST /dummyLogin, POST /register, POST /login
+	r.Post("/dummyLogin", auth.dummyLogin)
+	r.Post("/register", auth.register)
+	r.Post("/login", auth.login)
 
 	// Защищённые маршруты
 	r.Group(func(r chi.Router) {

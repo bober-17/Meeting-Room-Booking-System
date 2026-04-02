@@ -19,8 +19,7 @@ const (
 
 	authorizationHeader = "Authorization"
 	bearerPrefix        = "Bearer "
-	// TODO: вынести response-хелперы в internal/http/response, чтобы middleware и handlers использовали одно место
-	unauthorizedBody = `{"error":{"code":"UNAUTHORIZED","message":"unauthorized"}}`
+	unauthorizedBody    = `{"error":{"code":"UNAUTHORIZED","message":"unauthorized"}}`
 )
 
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
