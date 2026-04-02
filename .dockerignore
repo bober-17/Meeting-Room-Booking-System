@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.env.example
+.golangci.yml
+.dockerignore
+
+*.md
+
+docs/
+loadtest/
+mocks/

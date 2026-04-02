@@ -1,0 +1,9 @@
+/bin/
+*.exe
+
+.env
+
+.idea/
+.vscode/
+
+loadtest/results/
