@@ -18,7 +18,11 @@ import (
 	"github.com/internships-backend/test-backend-bober-17/internal/config"
 	"github.com/internships-backend/test-backend-bober-17/internal/http/handlers"
 	authrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/auth"
+	roomrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/room"
+	schedulerepo "github.com/internships-backend/test-backend-bober-17/internal/repo/schedule"
 	authservice "github.com/internships-backend/test-backend-bober-17/internal/service/auth"
+	roomservice "github.com/internships-backend/test-backend-bober-17/internal/service/room"
+	scheduleservice "github.com/internships-backend/test-backend-bober-17/internal/service/schedule"
 )
 
 const (
@@ -68,14 +72,18 @@ func main() {
 
 	// Репозитории
 	authRepo := authrepo.New(pool)
+	roomRepo := roomrepo.New(pool)
+	scheduleRepo := schedulerepo.New(pool)
 
 	// Сервисы
 	authSvc := authservice.New(authRepo, cfg.JWTSecret, logger)
+	roomSvc := roomservice.New(roomRepo, logger)
+	scheduleSvc := scheduleservice.New(scheduleRepo, logger)
 
-	// TODO: инициализировать room, schedule, slot, booking репозитории и сервисы
+	// TODO: инициализировать slot, booking репозитории и сервисы
 	// TODO: инициализировать ConferenceClient
 
-	router := handlers.NewRouter(cfg.JWTSecret, authSvc)
+	router := handlers.NewRouter(cfg.JWTSecret, authSvc, roomSvc, scheduleSvc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
