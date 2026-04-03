@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	timeParseLayout = "15:04"
-	minDayOfWeek    = 1
-	maxDayOfWeek    = 7
-	minSlotDuration = 30 * time.Minute
+	timeParseLayout      = "15:04"
+	minDayOfWeek         = 1
+	maxDayOfWeek         = 7
+	minSlotDuration      = 30 * time.Minute
+	scheduleTimeGranularity = 30 // минуты startTime/endTime должны быть кратны этому значению
 )
 
 type ScheduleService interface {
@@ -114,6 +115,13 @@ func (h *scheduleHandler) createSchedule(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		respondJSON(w, http.StatusBadRequest, errorResponse{
 			Error: errorBody{Code: codeInvalidRequest, Message: "endTime must be in HH:MM format"},
+		})
+		return
+	}
+
+	if startT.Minute()%scheduleTimeGranularity != 0 || endT.Minute()%scheduleTimeGranularity != 0 {
+		respondJSON(w, http.StatusBadRequest, errorResponse{
+			Error: errorBody{Code: codeInvalidRequest, Message: "startTime and endTime minutes must be 00 or 30"},
 		})
 		return
 	}

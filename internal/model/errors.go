@@ -8,6 +8,7 @@ var (
 	ErrBookingNotFound    = errors.New("booking not found")
 	ErrSlotAlreadyBooked  = errors.New("slot already booked")
 	ErrScheduleExists     = errors.New("schedule already exists")
+	ErrScheduleNotFound   = errors.New("schedule not found")
 	ErrForbidden          = errors.New("forbidden")
 	ErrSlotInPast         = errors.New("slot is in the past")
 	ErrEmailTaken         = errors.New("email already taken")

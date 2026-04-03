@@ -7,3 +7,8 @@
 .vscode/
 
 loadtest/results/
+
+*.out
+*.test
+
+DECISIONS.md

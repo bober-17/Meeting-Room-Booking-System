@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/internships-backend/test-backend-bober-17/internal/model"
@@ -32,6 +33,17 @@ func (r *Repo) CreateRoom(ctx context.Context, name string, description *string,
 	}
 
 	return room, nil
+}
+
+func (r *Repo) RoomExists(ctx context.Context, roomID uuid.UUID) (bool, error) {
+	const q = `SELECT EXISTS(SELECT 1 FROM rooms WHERE id = $1)`
+
+	var exists bool
+	if err := r.pool.QueryRow(ctx, q, roomID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("room exists: %w", err)
+	}
+
+	return exists, nil
 }
 
 func (r *Repo) ListRooms(ctx context.Context) ([]model.Room, error) {

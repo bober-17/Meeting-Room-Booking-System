@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -52,6 +53,36 @@ func (r *Repo) CreateSchedule(ctx context.Context, roomID uuid.UUID, daysOfWeek 
 			}
 		}
 		return model.Schedule{}, fmt.Errorf("create schedule: %w", err)
+	}
+
+	s.DaysOfWeek = make([]int, len(daysRaw))
+	for i, d := range daysRaw {
+		s.DaysOfWeek[i] = int(d)
+	}
+
+	return s, nil
+}
+
+func (r *Repo) GetScheduleByRoomID(ctx context.Context, roomID uuid.UUID) (model.Schedule, error) {
+	const q = `
+		SELECT id, room_id, days_of_week,
+		       TO_CHAR(start_time, 'HH24:MI'),
+		       TO_CHAR(end_time,   'HH24:MI'),
+		       created_at
+		FROM schedules
+		WHERE room_id = $1`
+
+	var s model.Schedule
+	var daysRaw []int32
+
+	err := r.pool.QueryRow(ctx, q, roomID).Scan(
+		&s.ID, &s.RoomID, &daysRaw, &s.StartTime, &s.EndTime, &s.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.Schedule{}, fmt.Errorf("get schedule by room: %w", model.ErrScheduleNotFound)
+		}
+		return model.Schedule{}, fmt.Errorf("get schedule by room: %w", err)
 	}
 
 	s.DaysOfWeek = make([]int, len(daysRaw))
