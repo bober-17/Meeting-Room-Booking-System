@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	timeParseLayout      = "15:04"
-	minDayOfWeek         = 1
-	maxDayOfWeek         = 7
-	minSlotDuration      = 30 * time.Minute
+	timeParseLayout         = "15:04"
+	minDayOfWeek            = 1
+	maxDayOfWeek            = 7
+	minSlotDuration         = 30 * time.Minute
 	scheduleTimeGranularity = 30 // минуты startTime/endTime должны быть кратны этому значению
 )
 

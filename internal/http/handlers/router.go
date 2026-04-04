@@ -16,6 +16,7 @@ func NewRouter(
 	roomSvc RoomService,
 	scheduleSvc ScheduleService,
 	slotSvc SlotService,
+	bookingSvc BookingService,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -25,6 +26,7 @@ func NewRouter(
 	room := newRoomHandler(roomSvc)
 	schedule := newScheduleHandler(scheduleSvc)
 	slotH := newSlotHandler(slotSvc)
+	bookingH := newBookingHandler(bookingSvc)
 
 	// Публичные маршруты — без авторизации
 	r.Get("/", InfoHandler)
@@ -50,7 +52,15 @@ func NewRouter(
 		// Slots
 		r.Get("/rooms/{roomId}/slots/list", slotH.listSlots)
 
-		// TODO: подключить booking handlers (POST /bookings/create, GET /bookings/list, GET /bookings/my, POST /bookings/{bookingId}/cancel)
+		// Bookings
+		r.With(middleware.RequireRole(string(model.RoleUser))).
+			Post("/bookings/create", bookingH.createBooking)
+		r.With(middleware.RequireRole(string(model.RoleAdmin))).
+			Get("/bookings/list", bookingH.listBookings)
+		r.With(middleware.RequireRole(string(model.RoleUser))).
+			Get("/bookings/my", bookingH.listUserBookings)
+		r.With(middleware.RequireRole(string(model.RoleUser))).
+			Post("/bookings/{bookingId}/cancel", bookingH.cancelBooking)
 	})
 
 	return r

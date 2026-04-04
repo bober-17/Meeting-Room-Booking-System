@@ -151,8 +151,6 @@ type tokenResponse struct {
 	Token string `json:"token"`
 }
 
-// TODO: если другие хендлеры тоже будут возвращать пользователя,
-// вынести userResponse и toUserResponse в отдельный файл handlers/user_response.go.
 type userResponse struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`

@@ -7,10 +7,10 @@ import (
 )
 
 type Schedule struct {
-	ID          uuid.UUID
-	RoomID      uuid.UUID
-	DaysOfWeek  []int
-	StartTime   string
-	EndTime     string
-	CreatedAt   time.Time
+	ID         uuid.UUID
+	RoomID     uuid.UUID
+	DaysOfWeek []int
+	StartTime  string
+	EndTime    string
+	CreatedAt  time.Time
 }

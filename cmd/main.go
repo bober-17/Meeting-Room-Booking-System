@@ -16,14 +16,17 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 
+	"github.com/internships-backend/test-backend-bober-17/internal/client/conference"
 	"github.com/internships-backend/test-backend-bober-17/internal/config"
 	"github.com/internships-backend/test-backend-bober-17/internal/http/handlers"
 	"github.com/internships-backend/test-backend-bober-17/internal/postgres"
 	authrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/auth"
+	bookingrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/booking"
 	roomrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/room"
 	schedulerepo "github.com/internships-backend/test-backend-bober-17/internal/repo/schedule"
 	slotrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/slot"
 	authservice "github.com/internships-backend/test-backend-bober-17/internal/service/auth"
+	bookingservice "github.com/internships-backend/test-backend-bober-17/internal/service/booking"
 	roomservice "github.com/internships-backend/test-backend-bober-17/internal/service/room"
 	scheduleservice "github.com/internships-backend/test-backend-bober-17/internal/service/schedule"
 	slotservice "github.com/internships-backend/test-backend-bober-17/internal/service/slot"
@@ -68,17 +71,19 @@ func run() error {
 	roomRepo := roomrepo.New(pool)
 	scheduleRepo := schedulerepo.New(pool)
 	slotRepo := slotrepo.New(pool)
+	bookingRepo := bookingrepo.New(pool)
+
+	// Клиенты внешних сервисов
+	confClient := conference.New()
 
 	// Сервисы
 	authSvc := authservice.New(authRepo, cfg.JWTSecret, logger)
 	roomSvc := roomservice.New(roomRepo, logger)
 	scheduleSvc := scheduleservice.New(scheduleRepo, logger)
 	slotSvc := slotservice.New(roomRepo, scheduleRepo, slotRepo, logger)
+	bookingSvc := bookingservice.New(bookingRepo, slotRepo, confClient, logger)
 
-	// TODO: инициализировать booking репозиторий и сервис
-	// TODO: инициализировать ConferenceClient
-
-	router := handlers.NewRouter(cfg.JWTSecret, authSvc, roomSvc, scheduleSvc, slotSvc)
+	router := handlers.NewRouter(cfg.JWTSecret, authSvc, roomSvc, scheduleSvc, slotSvc, bookingSvc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,

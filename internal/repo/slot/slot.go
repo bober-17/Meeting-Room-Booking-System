@@ -2,10 +2,12 @@ package slot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/internships-backend/test-backend-bober-17/internal/model"
@@ -17,6 +19,21 @@ type Repo struct {
 
 func New(pool *pgxpool.Pool) *Repo {
 	return &Repo{pool: pool}
+}
+
+func (r *Repo) GetSlotByID(ctx context.Context, id uuid.UUID) (model.Slot, error) {
+	const q = `SELECT id, room_id, start_at, end_at FROM slots WHERE id = $1`
+
+	var s model.Slot
+	err := r.pool.QueryRow(ctx, q, id).Scan(&s.ID, &s.RoomID, &s.StartAt, &s.EndAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return model.Slot{}, fmt.Errorf("get slot by id: %w", model.ErrSlotNotFound)
+		}
+		return model.Slot{}, fmt.Errorf("get slot by id: %w", err)
+	}
+
+	return s, nil
 }
 
 // EnsureSlots вставляет слоты пакетно через unnest().

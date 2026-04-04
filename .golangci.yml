@@ -1,12 +1,8 @@
-version: "2"
-
 linters:
   enable:
     - govet
     - errcheck
     - staticcheck
-    - gosimple
-    - unused
     - ineffassign
     - gocritic
     - goimports
