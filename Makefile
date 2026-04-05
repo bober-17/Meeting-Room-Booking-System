@@ -1,4 +1,4 @@
-.PHONY: up down seed test test-integration lint swagger mock
+.PHONY: up down seed test test-integration test-e2e load-test lint mock
 
 up:
 	docker-compose up --build -d
@@ -32,6 +32,14 @@ test-e2e:
 	  result=$$?; \
 	  docker compose -f docker-compose.e2e.yaml down -v; \
 	  exit $$result
+
+load-test:
+	@echo "Нагрузочное тестирование (сервис должен быть запущен: make up && make seed)"
+	@mkdir -p loadtest/results
+	docker run --rm -i --network host \
+		--user $(shell id -u):$(shell id -g) \
+		-v $(shell pwd)/loadtest:/loadtest \
+		grafana/k6 run - < loadtest/script.js
 
 lint:
 	golangci-lint run

@@ -17,6 +17,7 @@ docker-compose*.yaml
 mocks/
 scripts/
 e2e/
+loadtest/
 internal/repo/testutil/
 
 **/*_test.go

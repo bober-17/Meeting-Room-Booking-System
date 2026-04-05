@@ -457,3 +457,26 @@ make test-integration
 # Поднимает полный стек на порту 5434, после завершения сносит
 make test-e2e
 ```
+
+---
+
+## Нагрузочное тестирование
+
+Используется [k6](https://k6.io) через Docker — ничего устанавливать не нужно.
+
+```bash
+make up && make seed
+make load-test
+```
+
+Скрипт (`loadtest/script.js`) прогоняет два сценария параллельно: 100 RPS на получение слотов и 10 RPS на создание + отмену броней, 1 минута. После завершения отчёт сохраняется в `loadtest/results/report.txt`.
+
+Результаты последнего прогона — [`loadtest/results/report.txt`](loadtest/results/report.txt):
+
+```
+slots_duration p(95) = 6.58ms   (порог < 200ms)
+http_req_failed      = 0.00%    (порог < 0.1%)
+
+p50: 4.60ms  p90: 6.10ms  p95: 6.58ms  max: 13.83ms
+всего запросов: 6604, ошибок: 0
+```
