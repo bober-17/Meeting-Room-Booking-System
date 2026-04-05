@@ -1,0 +1,12 @@
+/bin/
+*.exe
+
+.env
+
+.idea/
+.vscode/
+
+*.out
+*.test
+
+DECISIONS.md

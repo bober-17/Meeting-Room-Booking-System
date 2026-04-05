@@ -1,0 +1,18 @@
+linters:
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - ineffassign
+    - gocritic
+    - goimports
+
+linters-settings:
+  goimports:
+    local-prefixes: github.com/internships-backend/test-backend-bober-17
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
