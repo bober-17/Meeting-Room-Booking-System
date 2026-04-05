@@ -31,6 +31,10 @@ func New(roomRepo RoomRepository, scheduleRepo ScheduleRepository, slotRepo Slot
 	}
 }
 
+// ListAvailableSlots возвращает свободные 30-минутные слоты для комнаты на указанную дату.
+// Слоты генерируются лениво при первом запросе: если для данной даты их ещё нет в БД,
+// они вставляются пакетно через INSERT ... ON CONFLICT DO NOTHING, а затем возвращаются только незабронированные.
+// Если у комнаты нет расписания или дата вне рабочих дней — возвращается пустой список.
 func (s *Service) ListAvailableSlots(ctx context.Context, roomID uuid.UUID, date time.Time) ([]model.Slot, error) {
 	exists, err := s.roomRepo.RoomExists(ctx, roomID)
 	if err != nil {

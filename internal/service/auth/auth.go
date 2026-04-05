@@ -33,6 +33,7 @@ func New(repo UserRepository, jwtSecret string, log *slog.Logger) *Service {
 		log:       log}
 }
 
+// DummyLogin выдаёт JWT для фиксированного пользователя с указанной ролью без проверки пароля.
 func (s *Service) DummyLogin(_ context.Context, role model.Role) (string, error) {
 	var userID uuid.UUID
 	switch role {
@@ -52,6 +53,7 @@ func (s *Service) DummyLogin(_ context.Context, role model.Role) (string, error)
 	return token, nil
 }
 
+// Register создаёт нового пользователя с хешированным паролем (bcrypt).
 func (s *Service) Register(ctx context.Context, email, password string, role model.Role) (model.User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -66,14 +68,14 @@ func (s *Service) Register(ctx context.Context, email, password string, role mod
 	return user, nil
 }
 
+// Login проверяет email и пароль пользователя, возвращает JWT при успехе.
+// Аккаунты без пароля (созданные через DummyLogin) не могут войти через этот метод.
 func (s *Service) Login(ctx context.Context, email, password string) (string, error) {
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
 		return "", fmt.Errorf("login: %w", err)
 	}
 
-	// Дамми-пользователи создаются через /dummyLogin без пароля (password = NULL).
-	// Войти через /login с таким аккаунтом невозможно.
 	if user.Password == nil {
 		return "", fmt.Errorf("login: %w", model.ErrInvalidCredentials)
 	}

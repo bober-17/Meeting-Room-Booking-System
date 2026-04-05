@@ -9,38 +9,29 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/internships-backend/test-backend-bober-17/internal/model"
 	pkgjwt "github.com/internships-backend/test-backend-bober-17/internal/pkg/jwt"
 	"github.com/internships-backend/test-backend-bober-17/internal/service/auth"
+	"github.com/internships-backend/test-backend-bober-17/mocks"
 )
 
 const testSecret = "test-secret"
 
-type repoMock struct {
-	getUserByEmail func(ctx context.Context, email string) (model.User, error)
-	createUser     func(ctx context.Context, email, passwordHash string, role model.Role) (model.User, error)
-}
-
-func (m *repoMock) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
-	return m.getUserByEmail(ctx, email)
-}
-
-func (m *repoMock) CreateUser(ctx context.Context, email, passwordHash string, role model.Role) (model.User, error) {
-	return m.createUser(ctx, email, passwordHash, role)
-}
-
-func newService(repo auth.UserRepository) *auth.Service {
+func newService(t *testing.T, repo *mocks.MockUserRepository) *auth.Service {
+	t.Helper()
 	return auth.New(repo, testSecret, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
 // DummyLogin
-func TestDummyLogin_AdminReturnsFixedUUID(t *testing.T) {
-	svc := newService(&repoMock{})
 
-	token, err := svc.DummyLogin(context.Background(), model.RoleAdmin)
+func TestDummyLogin_AdminReturnsFixedUUID(t *testing.T) {
+	repo := mocks.NewMockUserRepository(t)
+
+	token, err := newService(t, repo).DummyLogin(context.Background(), model.RoleAdmin)
 	require.NoError(t, err)
 
 	userID, role, err := pkgjwt.ParseToken(token, testSecret)
@@ -50,9 +41,9 @@ func TestDummyLogin_AdminReturnsFixedUUID(t *testing.T) {
 }
 
 func TestDummyLogin_UserReturnsFixedUUID(t *testing.T) {
-	svc := newService(&repoMock{})
+	repo := mocks.NewMockUserRepository(t)
 
-	token, err := svc.DummyLogin(context.Background(), model.RoleUser)
+	token, err := newService(t, repo).DummyLogin(context.Background(), model.RoleUser)
 	require.NoError(t, err)
 
 	userID, role, err := pkgjwt.ParseToken(token, testSecret)
@@ -62,59 +53,50 @@ func TestDummyLogin_UserReturnsFixedUUID(t *testing.T) {
 }
 
 func TestDummyLogin_InvalidRole(t *testing.T) {
-	svc := newService(&repoMock{})
+	repo := mocks.NewMockUserRepository(t)
 
-	_, err := svc.DummyLogin(context.Background(), model.Role("superadmin"))
+	_, err := newService(t, repo).DummyLogin(context.Background(), model.Role("superadmin"))
 	require.Error(t, err)
 }
 
 // Register
+
 func TestRegister_PasswordIsHashed(t *testing.T) {
 	const rawPassword = "password123"
+	repo := mocks.NewMockUserRepository(t)
 
-	repo := &repoMock{
-		createUser: func(_ context.Context, _, passwordHash string, _ model.Role) (model.User, error) {
-			// В репо должен прийти хеш, не открытый пароль
-			assert.NotEqual(t, rawPassword, passwordHash)
-			err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(rawPassword))
-			assert.NoError(t, err, "переданный хеш должен соответствовать исходному паролю")
-			return model.User{ID: uuid.New(), Email: "u@example.com", Role: model.RoleUser}, nil
-		},
-	}
+	repo.On("CreateUser", context.Background(), "u@example.com", mock.MatchedBy(func(hash string) bool {
+		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(rawPassword)) == nil
+	}), model.RoleUser).Return(model.User{ID: uuid.New(), Email: "u@example.com", Role: model.RoleUser}, nil)
 
-	svc := newService(repo)
-	_, err := svc.Register(context.Background(), "u@example.com", rawPassword, model.RoleUser)
+	_, err := newService(t, repo).Register(context.Background(), "u@example.com", rawPassword, model.RoleUser)
 	require.NoError(t, err)
 }
 
 func TestRegister_EmailTaken(t *testing.T) {
-	repo := &repoMock{
-		createUser: func(_ context.Context, _, _ string, _ model.Role) (model.User, error) {
-			return model.User{}, model.ErrEmailTaken
-		},
-	}
+	repo := mocks.NewMockUserRepository(t)
 
-	svc := newService(repo)
-	_, err := svc.Register(context.Background(), "taken@example.com", "pass", model.RoleUser)
+	repo.On("CreateUser", context.Background(), "taken@example.com", mock.AnythingOfType("string"), model.RoleUser).
+		Return(model.User{}, model.ErrEmailTaken)
+
+	_, err := newService(t, repo).Register(context.Background(), "taken@example.com", "pass", model.RoleUser)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrEmailTaken))
 }
 
 // Login
+
 func TestLogin_Success(t *testing.T) {
 	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
 	require.NoError(t, err)
 
 	wantID := uuid.New()
 	hashStr := string(hash)
-	repo := &repoMock{
-		getUserByEmail: func(_ context.Context, _ string) (model.User, error) {
-			return model.User{ID: wantID, Email: "u@example.com", Password: &hashStr, Role: model.RoleUser}, nil
-		},
-	}
+	repo := mocks.NewMockUserRepository(t)
+	repo.On("GetUserByEmail", context.Background(), "u@example.com").
+		Return(model.User{ID: wantID, Email: "u@example.com", Password: &hashStr, Role: model.RoleUser}, nil)
 
-	svc := newService(repo)
-	token, err := svc.Login(context.Background(), "u@example.com", "secret")
+	token, err := newService(t, repo).Login(context.Background(), "u@example.com", "secret")
 	require.NoError(t, err)
 
 	gotID, role, err := pkgjwt.ParseToken(token, testSecret)
@@ -128,41 +110,31 @@ func TestLogin_WrongPassword(t *testing.T) {
 	require.NoError(t, err)
 
 	hashStr := string(hash)
-	repo := &repoMock{
-		getUserByEmail: func(_ context.Context, _ string) (model.User, error) {
-			return model.User{ID: uuid.New(), Password: &hashStr, Role: model.RoleUser}, nil
-		},
-	}
+	repo := mocks.NewMockUserRepository(t)
+	repo.On("GetUserByEmail", context.Background(), "u@example.com").
+		Return(model.User{ID: uuid.New(), Password: &hashStr, Role: model.RoleUser}, nil)
 
-	svc := newService(repo)
-	_, err = svc.Login(context.Background(), "u@example.com", "wrong")
+	_, err = newService(t, repo).Login(context.Background(), "u@example.com", "wrong")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrInvalidCredentials))
 }
 
 func TestLogin_UserNotFound(t *testing.T) {
-	repo := &repoMock{
-		getUserByEmail: func(_ context.Context, _ string) (model.User, error) {
-			return model.User{}, model.ErrInvalidCredentials
-		},
-	}
+	repo := mocks.NewMockUserRepository(t)
+	repo.On("GetUserByEmail", context.Background(), "nobody@example.com").
+		Return(model.User{}, model.ErrInvalidCredentials)
 
-	svc := newService(repo)
-	_, err := svc.Login(context.Background(), "nobody@example.com", "pass")
+	_, err := newService(t, repo).Login(context.Background(), "nobody@example.com", "pass")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrInvalidCredentials))
 }
 
 func TestLogin_DummyUserHasNoPassword(t *testing.T) {
-	repo := &repoMock{
-		getUserByEmail: func(_ context.Context, _ string) (model.User, error) {
-			// Дамми-пользователь создаётся без пароля (password = NULL)
-			return model.User{ID: uuid.New(), Email: "admin@test.com", Password: nil, Role: model.RoleAdmin}, nil
-		},
-	}
+	repo := mocks.NewMockUserRepository(t)
+	repo.On("GetUserByEmail", context.Background(), "admin@test.com").
+		Return(model.User{ID: uuid.New(), Email: "admin@test.com", Password: nil, Role: model.RoleAdmin}, nil)
 
-	svc := newService(repo)
-	_, err := svc.Login(context.Background(), "admin@test.com", "anything")
+	_, err := newService(t, repo).Login(context.Background(), "admin@test.com", "anything")
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrInvalidCredentials))
 }

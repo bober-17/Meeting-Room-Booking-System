@@ -7,6 +7,8 @@ import (
 
 const forbiddenBody = `{"error":{"code":"FORBIDDEN","message":"forbidden"}}`
 
+// RequireRole разрешает доступ только пользователям с одной из указанных ролей.
+// При несоответствии возвращает 403 Forbidden.
 func RequireRole(roles ...string) func(http.Handler) http.Handler {
 	allowed := make(map[string]struct{}, len(roles))
 	for _, r := range roles {

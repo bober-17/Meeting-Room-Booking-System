@@ -22,6 +22,8 @@ const (
 	unauthorizedBody    = `{"error":{"code":"UNAUTHORIZED","message":"unauthorized"}}`
 )
 
+// Auth проверяет заголовок Authorization: Bearer <token> и кладёт userID и role в context.
+// При отсутствии или невалидном токене возвращает 401 Unauthorized.
 func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,11 +52,13 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	}
 }
 
+// UserIDFromContext извлекает userID, установленный middleware Auth.
 func UserIDFromContext(ctx context.Context) uuid.UUID {
 	v, _ := ctx.Value(ContextKeyUserID).(uuid.UUID)
 	return v
 }
 
+// RoleFromContext извлекает role, установленную middleware Auth.
 func RoleFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ContextKeyRole).(string)
 	return v

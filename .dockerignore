@@ -3,11 +3,20 @@
 .env
 .env.example
 .golangci.yml
+.mockery.yaml
 .dockerignore
+.github/
 
 *.md
 *.out
 
-docs/
-loadtest/
+Makefile
+api.yaml
+docker-compose*.yaml
+
 mocks/
+scripts/
+e2e/
+internal/repo/testutil/
+
+**/*_test.go

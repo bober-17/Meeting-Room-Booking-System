@@ -17,6 +17,8 @@ type Claims struct {
 	Role   string    `json:"role"`
 }
 
+// GenerateToken создаёт подписанный HS256 JWT с claims user_id и role.
+// Токен действителен 24 часа.
 func GenerateToken(userID uuid.UUID, role string, secret string) (string, error) {
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -37,6 +39,8 @@ func GenerateToken(userID uuid.UUID, role string, secret string) (string, error)
 	return signed, nil
 }
 
+// ParseToken валидирует JWT и возвращает userID и role из claims.
+// Возвращает ошибку при невалидной подписи, истёкшем токене или неожиданном алгоритме.
 func ParseToken(tokenString string, secret string) (uuid.UUID, string, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {

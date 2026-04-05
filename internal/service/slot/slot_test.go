@@ -10,162 +10,118 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/internships-backend/test-backend-bober-17/internal/model"
 	"github.com/internships-backend/test-backend-bober-17/internal/service/slot"
+	"github.com/internships-backend/test-backend-bober-17/mocks"
 )
 
-type roomRepoMock struct {
-	roomExists func(ctx context.Context, roomID uuid.UUID) (bool, error)
-}
-
-func (m *roomRepoMock) RoomExists(ctx context.Context, roomID uuid.UUID) (bool, error) {
-	return m.roomExists(ctx, roomID)
-}
-
-type scheduleRepoMock struct {
-	getScheduleByRoomID func(ctx context.Context, roomID uuid.UUID) (model.Schedule, error)
-}
-
-func (m *scheduleRepoMock) GetScheduleByRoomID(ctx context.Context, roomID uuid.UUID) (model.Schedule, error) {
-	return m.getScheduleByRoomID(ctx, roomID)
-}
-
-type slotRepoMock struct {
-	ensureSlots                func(ctx context.Context, slots []model.Slot) error
-	listAvailableByRoomAndDate func(ctx context.Context, roomID uuid.UUID, from, to time.Time) ([]model.Slot, error)
-}
-
-func (m *slotRepoMock) EnsureSlots(ctx context.Context, slots []model.Slot) error {
-	return m.ensureSlots(ctx, slots)
-}
-
-func (m *slotRepoMock) ListAvailableByRoomAndDate(ctx context.Context, roomID uuid.UUID, from, to time.Time) ([]model.Slot, error) {
-	return m.listAvailableByRoomAndDate(ctx, roomID, from, to)
-}
-
-func newService(roomRepo slot.RoomRepository, schedRepo slot.ScheduleRepository, slotRepo slot.SlotRepository) *slot.Service {
-	return slot.New(roomRepo, schedRepo, slotRepo, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+func newService(t *testing.T, rr *mocks.MockSlotRoomRepository, sr *mocks.MockSlotScheduleRepository, slr *mocks.MockSlotRepository) *slot.Service {
+	t.Helper()
+	return slot.New(rr, sr, slr, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 }
 
 // ListAvailableSlots
 
 func TestListAvailableSlots_RoomNotFound(t *testing.T) {
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return false, nil
-		}},
-		&scheduleRepoMock{},
-		&slotRepoMock{},
-	)
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	_, err := svc.ListAvailableSlots(context.Background(), uuid.New(), time.Now())
+	rr.On("RoomExists", context.Background(), roomID).Return(false, nil)
+
+	_, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, time.Now())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, model.ErrRoomNotFound))
 }
 
 func TestListAvailableSlots_RoomRepoError(t *testing.T) {
 	repoErr := errors.New("db unavailable")
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return false, repoErr
-		}},
-		&scheduleRepoMock{},
-		&slotRepoMock{},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(false, repoErr)
 
-	_, err := svc.ListAvailableSlots(context.Background(), uuid.New(), time.Now())
+	_, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, time.Now())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, repoErr))
 }
 
 func TestListAvailableSlots_NoSchedule(t *testing.T) {
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{}, model.ErrScheduleNotFound
-		}},
-		&slotRepoMock{},
-	)
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	slots, err := svc.ListAvailableSlots(context.Background(), uuid.New(), time.Now())
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{}, model.ErrScheduleNotFound)
+
+	slots, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, time.Now())
 	require.NoError(t, err)
 	assert.Empty(t, slots)
 }
 
 func TestListAvailableSlots_ScheduleRepoError(t *testing.T) {
 	repoErr := errors.New("db unavailable")
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{}, repoErr
-		}},
-		&slotRepoMock{},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{}, repoErr)
 
-	_, err := svc.ListAvailableSlots(context.Background(), uuid.New(), time.Now())
+	_, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, time.Now())
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, repoErr))
 }
 
 func TestListAvailableSlots_DayNotInSchedule(t *testing.T) {
-	// 2024-06-10 — понедельник (ISO=1), расписание только на вт-пт
+	// 2024-06-10 — понедельник (ISO=1), расписание только на вт–пт
 	date := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{
-				DaysOfWeek: []int{2, 3, 4, 5},
-				StartTime:  "09:00",
-				EndTime:    "18:00",
-			}, nil
-		}},
-		&slotRepoMock{},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{
+		DaysOfWeek: []int{2, 3, 4, 5},
+		StartTime:  "09:00",
+		EndTime:    "18:00",
+	}, nil)
 
-	slots, err := svc.ListAvailableSlots(context.Background(), uuid.New(), date)
+	slots, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, date)
 	require.NoError(t, err)
 	assert.Empty(t, slots)
 }
 
 func TestListAvailableSlots_SundayIsISO7(t *testing.T) {
 	// 2024-06-09 — воскресенье (Go Weekday()=0, ISO=7)
-	// Проверяем корректное маппирование: если в расписании день 7, воскресенье должно подойти
 	date := time.Date(2024, 6, 9, 0, 0, 0, 0, time.UTC)
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{
-				DaysOfWeek: []int{7},
-				StartTime:  "10:00",
-				EndTime:    "12:00",
-			}, nil
-		}},
-		&slotRepoMock{
-			ensureSlots: func(_ context.Context, slots []model.Slot) error {
-				assert.Len(t, slots, 4) // 10:00, 10:30, 11:00, 11:30
-				return nil
-			},
-			listAvailableByRoomAndDate: func(_ context.Context, _ uuid.UUID, _, _ time.Time) ([]model.Slot, error) {
-				return []model.Slot{{}, {}, {}, {}}, nil
-			},
-		},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{
+		DaysOfWeek: []int{7},
+		StartTime:  "10:00",
+		EndTime:    "12:00",
+	}, nil)
+	slr.On("EnsureSlots", context.Background(), mock4slots()).Return(nil)
+	slr.On("ListAvailableByRoomAndDate", context.Background(), roomID,
+		time.Date(2024, 6, 9, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+	).Return(make([]model.Slot, 4), nil)
 
-	got, err := svc.ListAvailableSlots(context.Background(), uuid.New(), date)
+	got, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, date)
 	require.NoError(t, err)
 	assert.Len(t, got, 4)
 }
@@ -174,22 +130,20 @@ func TestListAvailableSlots_EnsureSlotsError(t *testing.T) {
 	repoErr := errors.New("db unavailable")
 	// 2024-06-10 — понедельник (ISO=1)
 	date := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{DaysOfWeek: []int{1}, StartTime: "09:00", EndTime: "10:00"}, nil
-		}},
-		&slotRepoMock{
-			ensureSlots: func(_ context.Context, _ []model.Slot) error {
-				return repoErr
-			},
-		},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{
+		DaysOfWeek: []int{1},
+		StartTime:  "09:00",
+		EndTime:    "10:00",
+	}, nil)
+	slr.On("EnsureSlots", context.Background(), anySlots()).Return(repoErr)
 
-	_, err := svc.ListAvailableSlots(context.Background(), uuid.New(), date)
+	_, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, date)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, repoErr))
 }
@@ -198,23 +152,24 @@ func TestListAvailableSlots_ListAvailableError(t *testing.T) {
 	repoErr := errors.New("db unavailable")
 	// 2024-06-10 — понедельник (ISO=1)
 	date := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
+	roomID := uuid.New()
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{DaysOfWeek: []int{1}, StartTime: "09:00", EndTime: "10:00"}, nil
-		}},
-		&slotRepoMock{
-			ensureSlots: func(_ context.Context, _ []model.Slot) error { return nil },
-			listAvailableByRoomAndDate: func(_ context.Context, _ uuid.UUID, _, _ time.Time) ([]model.Slot, error) {
-				return nil, repoErr
-			},
-		},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{
+		DaysOfWeek: []int{1},
+		StartTime:  "09:00",
+		EndTime:    "10:00",
+	}, nil)
+	slr.On("EnsureSlots", context.Background(), anySlots()).Return(nil)
+	slr.On("ListAvailableByRoomAndDate", context.Background(), roomID,
+		time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 6, 11, 0, 0, 0, 0, time.UTC),
+	).Return([]model.Slot(nil), repoErr)
 
-	_, err := svc.ListAvailableSlots(context.Background(), uuid.New(), date)
+	_, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, date)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, repoErr))
 }
@@ -223,37 +178,37 @@ func TestListAvailableSlots_HappyPath(t *testing.T) {
 	roomID := uuid.New()
 	// 2024-06-10 — понедельник (ISO=1)
 	date := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC)
-
 	want := []model.Slot{
 		{ID: uuid.New(), RoomID: roomID, StartAt: time.Date(2024, 6, 10, 9, 0, 0, 0, time.UTC), EndAt: time.Date(2024, 6, 10, 9, 30, 0, 0, time.UTC)},
 		{ID: uuid.New(), RoomID: roomID, StartAt: time.Date(2024, 6, 10, 9, 30, 0, 0, time.UTC), EndAt: time.Date(2024, 6, 10, 10, 0, 0, 0, time.UTC)},
 	}
+	rr := mocks.NewMockSlotRoomRepository(t)
+	sr := mocks.NewMockSlotScheduleRepository(t)
+	slr := mocks.NewMockSlotRepository(t)
 
-	svc := newService(
-		&roomRepoMock{roomExists: func(_ context.Context, _ uuid.UUID) (bool, error) {
-			return true, nil
-		}},
-		&scheduleRepoMock{getScheduleByRoomID: func(_ context.Context, _ uuid.UUID) (model.Schedule, error) {
-			return model.Schedule{
-				DaysOfWeek: []int{1, 2, 3, 4, 5},
-				StartTime:  "09:00",
-				EndTime:    "10:00",
-			}, nil
-		}},
-		&slotRepoMock{
-			ensureSlots: func(_ context.Context, slots []model.Slot) error {
-				assert.Len(t, slots, 2)
-				return nil
-			},
-			listAvailableByRoomAndDate: func(_ context.Context, _ uuid.UUID, from, to time.Time) ([]model.Slot, error) {
-				assert.Equal(t, time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC), from)
-				assert.Equal(t, time.Date(2024, 6, 11, 0, 0, 0, 0, time.UTC), to)
-				return want, nil
-			},
-		},
-	)
+	rr.On("RoomExists", context.Background(), roomID).Return(true, nil)
+	sr.On("GetScheduleByRoomID", context.Background(), roomID).Return(model.Schedule{
+		DaysOfWeek: []int{1, 2, 3, 4, 5},
+		StartTime:  "09:00",
+		EndTime:    "10:00",
+	}, nil)
+	slr.On("EnsureSlots", context.Background(), anySlots()).Return(nil)
+	slr.On("ListAvailableByRoomAndDate", context.Background(), roomID,
+		time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC),
+		time.Date(2024, 6, 11, 0, 0, 0, 0, time.UTC),
+	).Return(want, nil)
 
-	got, err := svc.ListAvailableSlots(context.Background(), roomID, date)
+	got, err := newService(t, rr, sr, slr).ListAvailableSlots(context.Background(), roomID, date)
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
+}
+
+// anySlots возвращает matcher, принимающий любой []model.Slot.
+func anySlots() interface{} {
+	return mock.MatchedBy(func(_ []model.Slot) bool { return true })
+}
+
+// mock4slots возвращает matcher для ровно 4 слотов (10:00–12:00 с шагом 30 мин).
+func mock4slots() interface{} {
+	return mock.MatchedBy(func(s []model.Slot) bool { return len(s) == 4 })
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -9,6 +10,11 @@ import (
 	"github.com/internships-backend/test-backend-bober-17/internal/http/middleware"
 	"github.com/internships-backend/test-backend-bober-17/internal/model"
 )
+
+// requestTimeout — максимальное время обработки одного HTTP-запроса.
+// Устанавливается чуть меньше serverWriteTimeout (5s), чтобы приложение успело
+// вернуть корректный JSON 503 до того, как сервер принудительно закроет соединение.
+const requestTimeout = 4 * time.Second
 
 func NewRouter(
 	jwtSecret string,
@@ -20,6 +26,7 @@ func NewRouter(
 ) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(chimiddleware.Timeout(requestTimeout))
 	r.Use(chimiddleware.Recoverer)
 
 	auth := newAuthHandler(authSvc)

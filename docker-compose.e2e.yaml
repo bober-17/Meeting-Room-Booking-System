@@ -1,0 +1,15 @@
+services:
+  db_e2e:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: booking_e2e
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d booking_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
