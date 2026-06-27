@@ -11,11 +11,15 @@ services:
       DATABASE_PASSWORD: ${DATABASE_PASSWORD:-password}
       DATABASE_NAME: ${DATABASE_NAME:-booking}
       JWT_SECRET: ${JWT_SECRET:-supersecretkey}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
     depends_on:
       db:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
     networks:
       - booking-net
+      - kafka-net
 
   db:
     image: postgres:15
@@ -34,9 +38,56 @@ services:
     networks:
       - booking-net
 
+  kafka:
+    image: apache/kafka:3.7.0
+    ports:
+      - "9094:9094"  # внешний доступ с хоста (для отладки и notification-service)
+    environment:
+      # KRaft — без ZooKeeper
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Два listener-а: внутренний (docker-сеть) и внешний (хост)
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      # Настройки для single-node кластера
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - kafka-net
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka-net
+
 networks:
   booking-net:
     driver: bridge
+  kafka-net:
+    driver: bridge
+    name: kafka-net  # явное имя — notification-service подключится как external
 
 volumes:
   postgres-data:
+  kafka-data:
