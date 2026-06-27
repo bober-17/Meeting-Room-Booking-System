@@ -17,6 +17,7 @@ const (
 	codeInvalidRequest    = "INVALID_REQUEST"
 	codeUnauthorized      = "UNAUTHORIZED"
 	codeForbidden         = "FORBIDDEN"
+	codeNotFound          = "NOT_FOUND"
 	codeRoomNotFound      = "ROOM_NOT_FOUND"
 	codeSlotNotFound      = "SLOT_NOT_FOUND"
 	codeBookingNotFound   = "BOOKING_NOT_FOUND"
@@ -65,6 +66,8 @@ func mapError(err error) (code, message string, status int) {
 		return codeBookingNotFound, model.ErrBookingNotFound.Error(), http.StatusNotFound
 	case errors.Is(err, model.ErrSlotAlreadyBooked):
 		return codeSlotAlreadyBooked, model.ErrSlotAlreadyBooked.Error(), http.StatusConflict
+	case errors.Is(err, model.ErrScheduleNotFound):
+		return codeNotFound, model.ErrScheduleNotFound.Error(), http.StatusNotFound
 	case errors.Is(err, model.ErrScheduleExists):
 		return codeScheduleExists, model.ErrScheduleExists.Error(), http.StatusConflict
 	case errors.Is(err, model.ErrForbidden):
