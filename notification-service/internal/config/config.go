@@ -3,23 +3,25 @@ package config
 import "os"
 
 const (
-	defaultServerPort = "8080"
+	defaultServerPort = "8081"
 
-	defaultDBHost     = "db"
+	defaultDBHost     = "notification-db"
 	defaultDBPort     = "5432"
 	defaultDBUser     = "postgres"
 	defaultDBPassword = "password"
-	deaultDBName      = "booking"
+	defaultDBName     = "notifications"
+
+	// Переменные окружения используют NOTIFICATION_ префикс,
+	// чтобы не конфликтовать с DATABASE_* booking-service в одном .env.
+
 
 	defaultJWTSecret = "supersecretkey"
 
 	defaultKafkaBrokers            = "kafka:9092"
 	defaultKafkaTopicBookingEvents = "booking.events"
+	defaultKafkaGroupID            = "notification-service"
 
 	sslModeDisable = "sslmode=disable"
-
-	// Переменные окружения используют BOOKING_ префикс,
-	// чтобы не конфликтовать с NOTIFICATION_DATABASE_* в одном .env монорепо.
 )
 
 type Config struct {
@@ -35,22 +37,24 @@ type Config struct {
 
 	KafkaBrokers            string
 	KafkaTopicBookingEvents string
+	KafkaGroupID            string
 }
 
 func Load() Config {
 	return Config{
 		ServerPort: getEnv("SERVER_PORT", defaultServerPort),
 
-		DBHost:     getEnv("BOOKING_DATABASE_HOST", defaultDBHost),
-		DBPort:     getEnv("BOOKING_DATABASE_PORT", defaultDBPort),
-		DBUser:     getEnv("BOOKING_DATABASE_USER", defaultDBUser),
-		DBPassword: getEnv("BOOKING_DATABASE_PASSWORD", defaultDBPassword),
-		DBName:     getEnv("BOOKING_DATABASE_NAME", deaultDBName),
+		DBHost:     getEnv("NOTIFICATION_DATABASE_HOST", defaultDBHost),
+		DBPort:     getEnv("NOTIFICATION_DATABASE_PORT", defaultDBPort),
+		DBUser:     getEnv("NOTIFICATION_DATABASE_USER", defaultDBUser),
+		DBPassword: getEnv("NOTIFICATION_DATABASE_PASSWORD", defaultDBPassword),
+		DBName:     getEnv("NOTIFICATION_DATABASE_NAME", defaultDBName),
 
 		JWTSecret: getEnv("JWT_SECRET", defaultJWTSecret),
 
 		KafkaBrokers:            getEnv("KAFKA_BROKERS", defaultKafkaBrokers),
 		KafkaTopicBookingEvents: getEnv("KAFKA_TOPIC_BOOKING_EVENTS", defaultKafkaTopicBookingEvents),
+		KafkaGroupID:            getEnv("KAFKA_GROUP_ID", defaultKafkaGroupID),
 	}
 }
 
