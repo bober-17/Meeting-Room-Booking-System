@@ -23,15 +23,19 @@ func New(pool *pgxpool.Pool) *Repo {
 }
 
 func (r *Repo) CreateBooking(ctx context.Context, slotID, userID uuid.UUID) (model.Booking, error) {
-	const q = `
-		INSERT INTO bookings (slot_id, user_id)
-		VALUES ($1, $2)
-		RETURNING id, slot_id, user_id, status, conference_link, created_at`
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return model.Booking{}, fmt.Errorf("create booking begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	var b model.Booking
-	err := r.pool.QueryRow(ctx, q, slotID, userID).Scan(
-		&b.ID, &b.SlotID, &b.UserID, &b.Status, &b.ConferenceLink, &b.CreatedAt,
-	)
+	err = tx.QueryRow(ctx, `
+		INSERT INTO bookings (slot_id, user_id)
+		VALUES ($1, $2)
+		RETURNING id, slot_id, user_id, status, conference_link, created_at`,
+		slotID, userID,
+	).Scan(&b.ID, &b.SlotID, &b.UserID, &b.Status, &b.ConferenceLink, &b.CreatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
@@ -43,6 +47,36 @@ func (r *Repo) CreateBooking(ctx context.Context, slotID, userID uuid.UUID) (mod
 			}
 		}
 		return model.Booking{}, fmt.Errorf("create booking: %w", err)
+	}
+
+	outboxID := uuid.New()
+	_, err = tx.Exec(ctx, `
+		INSERT INTO outbox (id, event_type, payload)
+		SELECT
+			$4,
+			'booking.created',
+			jsonb_build_object(
+				'event_id',    $5::text,
+				'event_type',  'booking.created',
+				'occurred_at', NOW(),
+				'booking_id',  $1::text,
+				'user_id',     $2::text,
+				'room_id',     r.id::text,
+				'room_name',   r.name,
+				'slot_start',  s.start_at,
+				'slot_end',    s.end_at
+			)
+		FROM slots s
+		JOIN rooms r ON r.id = s.room_id
+		WHERE s.id = $3`,
+		b.ID, b.UserID, slotID, outboxID, outboxID.String(),
+	)
+	if err != nil {
+		return model.Booking{}, fmt.Errorf("create booking outbox: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Booking{}, fmt.Errorf("create booking commit: %w", err)
 	}
 
 	return b, nil
@@ -67,37 +101,72 @@ func (r *Repo) GetBookingByID(ctx context.Context, id uuid.UUID) (model.Booking,
 	return b, nil
 }
 
-// CancelBooking атомарно отменяет бронь через один UPDATE.
-// Если UPDATE не затронул строку — делает SELECT для диагностики: 404 / 403 / уже отменена (идемпотентность).
 func (r *Repo) CancelBooking(ctx context.Context, id, userID uuid.UUID) (model.Booking, error) {
-	const updateQ = `
-		UPDATE bookings SET status = 'cancelled'
-		WHERE id = $1 AND status = 'active' AND user_id = $2
-		RETURNING id, slot_id, user_id, status, conference_link, created_at`
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return model.Booking{}, fmt.Errorf("cancel booking begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	var b model.Booking
-	err := r.pool.QueryRow(ctx, updateQ, id, userID).Scan(
-		&b.ID, &b.SlotID, &b.UserID, &b.Status, &b.ConferenceLink, &b.CreatedAt,
-	)
-	if err == nil {
-		return b, nil
-	}
+	err = tx.QueryRow(ctx, `
+		UPDATE bookings SET status = 'cancelled'
+		WHERE id = $1 AND status = 'active' AND user_id = $2
+		RETURNING id, slot_id, user_id, status, conference_link, created_at`,
+		id, userID,
+	).Scan(&b.ID, &b.SlotID, &b.UserID, &b.Status, &b.ConferenceLink, &b.CreatedAt)
 
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return model.Booking{}, fmt.Errorf("cancel booking: %w", err)
 	}
 
-	// UPDATE не затронул строку — определяем причину
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r.diagnoseCancelFailure(ctx, id, userID)
+	}
+
+	outboxID := uuid.New()
+	_, err = tx.Exec(ctx, `
+		INSERT INTO outbox (id, event_type, payload)
+		SELECT
+			$4,
+			'booking.cancelled',
+			jsonb_build_object(
+				'event_id',    $5::text,
+				'event_type',  'booking.cancelled',
+				'occurred_at', NOW(),
+				'booking_id',  $1::text,
+				'user_id',     $2::text,
+				'room_id',     r.id::text,
+				'room_name',   r.name,
+				'slot_start',  s.start_at,
+				'slot_end',    s.end_at
+			)
+		FROM slots s
+		JOIN rooms r ON r.id = s.room_id
+		WHERE s.id = $3`,
+		b.ID, b.UserID, b.SlotID, outboxID, outboxID.String(),
+	)
+	if err != nil {
+		return model.Booking{}, fmt.Errorf("cancel booking outbox: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return model.Booking{}, fmt.Errorf("cancel booking commit: %w", err)
+	}
+
+	return b, nil
+}
+
+func (r *Repo) diagnoseCancelFailure(ctx context.Context, id, userID uuid.UUID) (model.Booking, error) {
 	existing, err := r.GetBookingByID(ctx, id)
 	if err != nil {
-		return model.Booking{}, err // уже оборачивает ErrBookingNotFound
+		return model.Booking{}, err
 	}
 
 	if existing.UserID != userID {
 		return model.Booking{}, fmt.Errorf("cancel booking: %w", model.ErrForbidden)
 	}
 
-	// Бронь уже отменена — идемпотентность, возвращаем как есть
 	return existing, nil
 }
 
@@ -136,8 +205,6 @@ func (r *Repo) ListBookings(ctx context.Context, page, pageSize int) ([]model.Bo
 	return bookings, total, nil
 }
 
-// ListUserBookings возвращает только активные брони пользователя на будущие слоты (start >= now).
-// Логика выбора — DECISIONS.md п.17.
 func (r *Repo) ListUserBookings(ctx context.Context, userID uuid.UUID) ([]model.Booking, error) {
 	const q = `
 		SELECT b.id, b.slot_id, b.user_id, b.status, b.conference_link, b.created_at

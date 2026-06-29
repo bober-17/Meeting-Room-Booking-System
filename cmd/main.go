@@ -9,6 +9,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,9 +20,11 @@ import (
 	"github.com/internships-backend/test-backend-bober-17/internal/client/conference"
 	"github.com/internships-backend/test-backend-bober-17/internal/config"
 	"github.com/internships-backend/test-backend-bober-17/internal/http/handlers"
+	"github.com/internships-backend/test-backend-bober-17/internal/outbox"
 	"github.com/internships-backend/test-backend-bober-17/internal/postgres"
 	authrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/auth"
 	bookingrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/booking"
+	outboxrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/outbox"
 	roomrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/room"
 	schedulerepo "github.com/internships-backend/test-backend-bober-17/internal/repo/schedule"
 	slotrepo "github.com/internships-backend/test-backend-bober-17/internal/repo/slot"
@@ -66,17 +69,27 @@ func run() error {
 
 	logger.Info("migrations applied")
 
-	// Репозитории
 	authRepo := authrepo.New(pool)
 	roomRepo := roomrepo.New(pool)
 	scheduleRepo := schedulerepo.New(pool)
 	slotRepo := slotrepo.New(pool)
 	bookingRepo := bookingrepo.New(pool)
+	outboxRepo := outboxrepo.New(pool)
 
-	// Клиенты внешних сервисов
 	confClient := conference.New()
 
-	// Сервисы
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	brokers := strings.Split(cfg.KafkaBrokers, ",")
+	relay := outbox.NewRelay(outboxRepo, brokers, cfg.KafkaTopicBookingEvents, logger)
+
+	relayDone := make(chan struct{})
+	go func() {
+		relay.Run(ctx)
+		close(relayDone)
+	}()
+
 	authSvc := authservice.New(authRepo, cfg.JWTSecret, logger)
 	roomSvc := roomservice.New(roomRepo, logger)
 	scheduleSvc := scheduleservice.New(scheduleRepo, logger)
@@ -108,24 +121,30 @@ func run() error {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case err := <-serverErr:
 		return fmt.Errorf("server: %w", err)
-	case <-quit:
-		logger.Info("shutting down server")
+	case <-ctx.Done():
+		logger.Info("shutting down")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
+	// HTTP останавливаем первым — после этого новых записей в outbox не будет
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer shutdownCancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("server shutdown: %w", err)
 	}
 
 	logger.Info("server stopped")
+
+	// relay дренирует уже без риска новых записей; должен завершиться до pool.Close() (defer выше)
+	select {
+	case <-relayDone:
+		logger.Info("outbox relay drained")
+	case <-time.After(shutdownTimeout):
+		logger.Warn("outbox relay drain timeout, pending records will retry on next start")
+	}
 
 	return nil
 }
