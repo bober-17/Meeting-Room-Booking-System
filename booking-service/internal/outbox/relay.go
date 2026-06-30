@@ -27,10 +27,9 @@ func NewRelay(repo *outboxrepo.Repo, brokers []string, topic string, logger *slo
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(brokers...),
 		Topic:                  topic,
-		Balancer:               &kafka.Hash{}, // все события одной брони в один partition
-		BatchTimeout:           writerBatchTimeout,
-		RequiredAcks:           kafka.RequireOne,
-		AllowAutoTopicCreation: true,
+		Balancer:     &kafka.Hash{}, // все события одной брони в один partition
+		BatchTimeout: writerBatchTimeout,
+		RequiredAcks: kafka.RequireOne,
 	}
 	return &Relay{repo: repo, writer: writer, logger: logger}
 }

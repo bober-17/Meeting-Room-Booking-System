@@ -19,8 +19,8 @@ services:
     depends_on:
       booking-db:
         condition: service_healthy
-      kafka:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - booking-net
       - kafka-net

@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strings"
 )
 
 const sslModeDisable = "sslmode=disable"
@@ -48,6 +49,14 @@ func (c Config) DSN() string {
 		" password=" + c.DBPassword +
 		" dbname=" + c.DBName +
 		" " + sslModeDisable
+}
+
+func (c Config) KafkaBrokersList() []string {
+	parts := strings.Split(c.KafkaBrokers, ",")
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return parts
 }
 
 func (c Config) MigrateDSN() string {

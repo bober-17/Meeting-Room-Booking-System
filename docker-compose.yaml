@@ -18,7 +18,7 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
@@ -27,6 +27,21 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    networks:
+      - kafka-net
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      /opt/kafka/bin/kafka-topics.sh
+      --bootstrap-server kafka:9092
+      --create --if-not-exists
+      --topic ${KAFKA_TOPIC_BOOKING_EVENTS:-booking.events}
+      --partitions 1
+      --replication-factor 1
     networks:
       - kafka-net
 

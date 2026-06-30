@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/config"
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/http/handlers"
+	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/kafka"
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/postgres"
 	notifRepo "github.com/bober-17/meeting-room-booking-system/notification-service/internal/repo/notification"
 	notifService "github.com/bober-17/meeting-room-booking-system/notification-service/internal/service/notification"
@@ -58,7 +60,13 @@ func run() error {
 	repo := notifRepo.New(pool)
 	svc := notifService.New(repo, nil, logger)
 
-	_ = svc // будет передан в handlers в фазе 6
+	consumer := kafka.NewConsumer(
+		cfg.KafkaBrokersList(),
+		cfg.KafkaTopicBookingEvents,
+		cfg.KafkaGroupID,
+		logger,
+	)
+	defer consumer.Close()
 
 	router := handlers.NewRouter()
 
@@ -72,6 +80,24 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	var consumerWg sync.WaitGroup
+	consumerWg.Add(1)
+	go func() {
+		defer consumerWg.Done()
+		for {
+			if err := consumer.Run(ctx, svc); err != nil {
+				logger.Error("consumer error, restarting", "err", err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+				continue
+			}
+			return
+		}
+	}()
 
 	serverErr := make(chan error, 1)
 	go func() {
@@ -95,6 +121,7 @@ func run() error {
 		return fmt.Errorf("server shutdown: %w", err)
 	}
 
+	consumerWg.Wait()
 	logger.Info("server stopped")
 
 	return nil
