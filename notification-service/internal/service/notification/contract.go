@@ -9,7 +9,7 @@ import (
 
 type Repository interface {
 	Create(ctx context.Context, n model.Notification) error
-	ListByUserID(ctx context.Context, userID string, limit, offset int) ([]model.Notification, error)
+	ListByUserID(ctx context.Context, userID string, limit, offset int) ([]model.Notification, int, error)
 	MarkAsRead(ctx context.Context, id, userID string) error
 	MarkAllAsRead(ctx context.Context, userID string) error
 }
@@ -20,7 +20,7 @@ type Hub interface {
 
 type NotificationService interface {
 	CreateFromEvent(ctx context.Context, event events.BookingEvent) error
-	ListByUserID(ctx context.Context, userID string, limit, offset int) ([]model.Notification, error)
+	ListByUserID(ctx context.Context, userID string, limit, offset int) ([]model.Notification, int, error)
 	MarkAsRead(ctx context.Context, id, userID string) error
 	MarkAllAsRead(ctx context.Context, userID string) error
 }

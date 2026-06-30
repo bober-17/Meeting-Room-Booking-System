@@ -1,59 +1,20 @@
+include:
+  - booking-service/docker-compose.yaml
+  - notification-service/docker-compose.yaml
+
 services:
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      SERVER_PORT: ${BOOKING_SERVER_PORT:-8080}
-      BOOKING_DATABASE_HOST: ${BOOKING_DATABASE_HOST:-db}
-      BOOKING_DATABASE_PORT: ${BOOKING_DATABASE_PORT:-5432}
-      BOOKING_DATABASE_USER: ${BOOKING_DATABASE_USER:-postgres}
-      BOOKING_DATABASE_PASSWORD: ${BOOKING_DATABASE_PASSWORD:-password}
-      BOOKING_DATABASE_NAME: ${BOOKING_DATABASE_NAME:-booking}
-      JWT_SECRET: ${JWT_SECRET:-supersecretkey}
-      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
-      KAFKA_TOPIC_BOOKING_EVENTS: ${KAFKA_TOPIC_BOOKING_EVENTS:-booking.events}
-    depends_on:
-      db:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - booking-net
-      - kafka-net
-
-  db:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: ${BOOKING_DATABASE_USER:-postgres}
-      POSTGRES_PASSWORD: ${BOOKING_DATABASE_PASSWORD:-password}
-      POSTGRES_DB: ${BOOKING_DATABASE_NAME:-booking}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${BOOKING_DATABASE_USER:-postgres} -d ${BOOKING_DATABASE_NAME:-booking}"]
-      interval: 5s
-      timeout: 10s
-      retries: 5
-      start_period: 10s
-    networks:
-      - booking-net
-
   kafka:
     image: apache/kafka:3.7.0
     ports:
-      - "9094:9094"  # внешний доступ с хоста (для отладки и notification-service)
+      - "${KAFKA_EXTERNAL_PORT:-9094}:9094"
     environment:
-      # KRaft — без ZooKeeper
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      # Два listener-а: внутренний (docker-сеть) и внешний (хост)
       KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:${KAFKA_EXTERNAL_PORT:-9094}
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      # Настройки для single-node кластера
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
@@ -72,7 +33,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     ports:
-      - "8090:8080"
+      - "${KAFKA_UI_PORT:-8090}:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
@@ -82,59 +43,10 @@ services:
     networks:
       - kafka-net
 
-  notification:
-    build:
-      context: .
-      dockerfile: notification-service/Dockerfile
-    ports:
-      - "8081:8081"
-    environment:
-      SERVER_PORT: ${NOTIFICATION_SERVER_PORT:-8081}
-      NOTIFICATION_DATABASE_HOST: ${NOTIFICATION_DATABASE_HOST:-notification-db}
-      NOTIFICATION_DATABASE_PORT: ${NOTIFICATION_DATABASE_PORT:-5432}
-      NOTIFICATION_DATABASE_USER: ${NOTIFICATION_DATABASE_USER:-postgres}
-      NOTIFICATION_DATABASE_PASSWORD: ${NOTIFICATION_DATABASE_PASSWORD:-password}
-      NOTIFICATION_DATABASE_NAME: ${NOTIFICATION_DATABASE_NAME:-notifications}
-      JWT_SECRET: ${JWT_SECRET:-supersecretkey}
-      KAFKA_BROKERS: ${KAFKA_BROKERS:-kafka:9092}
-      KAFKA_TOPIC_BOOKING_EVENTS: ${KAFKA_TOPIC_BOOKING_EVENTS:-booking.events}
-      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-notification-service}
-    depends_on:
-      notification-db:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    networks:
-      - notify-net
-      - kafka-net
-
-  notification-db:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: ${NOTIFICATION_DATABASE_USER:-postgres}
-      POSTGRES_PASSWORD: ${NOTIFICATION_DATABASE_PASSWORD:-password}
-      POSTGRES_DB: ${NOTIFICATION_DATABASE_NAME:-notifications}
-    volumes:
-      - notification-postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_DATABASE_USER:-postgres} -d ${NOTIFICATION_DATABASE_NAME:-notifications}"]
-      interval: 5s
-      timeout: 10s
-      retries: 5
-      start_period: 10s
-    networks:
-      - notify-net
-
 networks:
-  booking-net:
-    driver: bridge
   kafka-net:
-    driver: bridge
     name: kafka-net
-  notify-net:
-    driver: bridge
+    external: true
 
 volumes:
-  postgres-data:
   kafka-data:
-  notification-postgres-data:

@@ -1,28 +1,11 @@
 package config
 
-import "os"
-
-const (
-	defaultServerPort = "8081"
-
-	defaultDBHost     = "notification-db"
-	defaultDBPort     = "5432"
-	defaultDBUser     = "postgres"
-	defaultDBPassword = "password"
-	defaultDBName     = "notifications"
-
-	// Переменные окружения используют NOTIFICATION_ префикс,
-	// чтобы не конфликтовать с DATABASE_* booking-service в одном .env.
-
-
-	defaultJWTSecret = "supersecretkey"
-
-	defaultKafkaBrokers            = "kafka:9092"
-	defaultKafkaTopicBookingEvents = "booking.events"
-	defaultKafkaGroupID            = "notification-service"
-
-	sslModeDisable = "sslmode=disable"
+import (
+	"log"
+	"os"
 )
+
+const sslModeDisable = "sslmode=disable"
 
 type Config struct {
 	ServerPort string
@@ -42,19 +25,19 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		ServerPort: getEnv("SERVER_PORT", defaultServerPort),
+		ServerPort: optEnv("NOTIFICATION_SERVER_PORT", "8081"),
 
-		DBHost:     getEnv("NOTIFICATION_DATABASE_HOST", defaultDBHost),
-		DBPort:     getEnv("NOTIFICATION_DATABASE_PORT", defaultDBPort),
-		DBUser:     getEnv("NOTIFICATION_DATABASE_USER", defaultDBUser),
-		DBPassword: getEnv("NOTIFICATION_DATABASE_PASSWORD", defaultDBPassword),
-		DBName:     getEnv("NOTIFICATION_DATABASE_NAME", defaultDBName),
+		DBHost:     mustEnv("NOTIFICATION_DATABASE_HOST"),
+		DBPort:     optEnv("NOTIFICATION_DATABASE_PORT", "5432"),
+		DBUser:     mustEnv("NOTIFICATION_DATABASE_USER"),
+		DBPassword: mustEnv("NOTIFICATION_DATABASE_PASSWORD"),
+		DBName:     mustEnv("NOTIFICATION_DATABASE_NAME"),
 
-		JWTSecret: getEnv("JWT_SECRET", defaultJWTSecret),
+		JWTSecret: mustEnv("JWT_SECRET"),
 
-		KafkaBrokers:            getEnv("KAFKA_BROKERS", defaultKafkaBrokers),
-		KafkaTopicBookingEvents: getEnv("KAFKA_TOPIC_BOOKING_EVENTS", defaultKafkaTopicBookingEvents),
-		KafkaGroupID:            getEnv("KAFKA_GROUP_ID", defaultKafkaGroupID),
+		KafkaBrokers:            mustEnv("KAFKA_BROKERS"),
+		KafkaTopicBookingEvents: optEnv("KAFKA_TOPIC_BOOKING_EVENTS", "booking.events"),
+		KafkaGroupID:            optEnv("KAFKA_GROUP_ID", "notification-service"),
 	}
 }
 
@@ -72,9 +55,17 @@ func (c Config) MigrateDSN() string {
 		"@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?" + sslModeDisable
 }
 
-func getEnv(key, defaultValue string) string {
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("required environment variable %q is not set", key)
+	}
+	return v
+}
+
+func optEnv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return defaultValue
+	return def
 }

@@ -1,0 +1,42 @@
+with-expecter: true
+outpkg: mocks
+dir: mocks
+
+packages:
+  # service/auth
+  github.com/bober-17/meeting-room-booking-system/booking-service/internal/service/auth:
+    interfaces:
+      UserRepository:
+
+  # service/slot
+  github.com/bober-17/meeting-room-booking-system/booking-service/internal/service/slot:
+    interfaces:
+      RoomRepository:
+        config:
+          mockname: MockSlotRoomRepository
+          filename: mock_SlotRoomRepository.go
+      ScheduleRepository:
+        config:
+          mockname: MockSlotScheduleRepository
+          filename: mock_SlotScheduleRepository.go
+      SlotRepository:
+
+  # service/booking
+  github.com/bober-17/meeting-room-booking-system/booking-service/internal/service/booking:
+    interfaces:
+      BookingRepository:
+      SlotRepository:
+        config:
+          mockname: MockBookingSlotRepository
+          filename: mock_BookingSlotRepository.go
+
+      ConferenceClient:
+
+  # handlers 
+  github.com/bober-17/meeting-room-booking-system/booking-service/internal/http/handlers:
+    interfaces:
+      AuthService:
+      RoomService:
+      ScheduleService:
+      SlotService:
+      BookingService:

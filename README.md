@@ -1,482 +1,369 @@
-# Сервис бронирования переговорок
+# Meeting Room Booking System
 
-Сервис управления переговорками и бронями для корпоративной среды. Администраторы создают переговорки и настраивают расписание их доступности — дни недели и временной диапазон. На основе расписания система автоматически формирует 30-минутные слоты. Сотрудники просматривают свободные слоты и бронируют их; при создании брони опционально генерируется ссылка на видеоконференцию через внешний сервис. Один слот — одна активная бронь.
+Корпоративная система бронирования переговорок с уведомлениями в реальном времени.  
 
-## Быстрый старт
-
-```bash
-make up
-# или: docker-compose up --build -d
-```
-
-Сервис доступен на `http://localhost:8080`. Схема базы данных применяется автоматически при старте. Дополнительная настройка не требуется — все переменные окружения имеют значения по умолчанию.
-
-Для остановки и удаления данных:
-
-```bash
-make down
-# или: docker-compose down -v
-```
-
-### Переменные окружения
-
-| Переменная            | По умолчанию     | Описание               |
-|-----------------------|------------------|------------------------|
-| `SERVER_PORT`         | `8080`           | Порт сервера           |
-| `DATABASE_HOST`       | `db`             | Хост базы данных       |
-| `DATABASE_PORT`       | `5432`           | Порт базы данных       |
-| `DATABASE_USER`       | `postgres`       | Пользователь БД        |
-| `DATABASE_PASSWORD`   | `password`       | Пароль БД              |
-| `DATABASE_NAME`       | `booking`        | Имя базы данных        |
-| `JWT_SECRET`          | `supersecretkey` | Секрет для подписи JWT |
-
-Для переопределения создайте `.env` в корне проекта (пример: `.env.example`).
-
-### Команды
-
-| Команда                 | Описание                                                        |
-|-------------------------|-----------------------------------------------------------------|
-| `make up`               | Запустить сервис и базу данных                                  |
-| `make down`             | Остановить сервис и удалить данные                              |
-| `make seed`             | Наполнить базу данных тестовыми данными                         |
-| `make test`             | Запустить юнит-тесты и вывести итоговый процент покрытия        |
-| `make test-integration` | Запустить интеграционные тесты репозиториев                     |
-| `make test-e2e`         | Запустить E2E тесты                                             |
-| `make lint`             | Запустить линтер                                                |
-| `make mock`             | Перегенерировать заглушки (mockery)                             |
+Администраторы создают переговорки и задают расписание доступности. Система автоматически
+генерирует 30-минутные слоты. Сотрудники бронируют слоты — при создании брони опционально
+генерируется ссылка на видеоконференцию. После каждого события бронирования пользователь
+получает мгновенное push-уведомление через SSE.
 
 ---
 
-## Тестовые данные
+## Сервисы
 
-`make seed` наполняет базу данных фиксированными данными для ручного тестирования. Безопасно запускать повторно — все вставки идемпотентны.
-
-### Пользователи
-
-Системные пользователи (`admin` и `user`) создаются автоматически при старте через миграцию. `make seed` включает их повторно для полноты, без изменений.
-
-| UUID                                   | Email            | Роль    |
-|----------------------------------------|------------------|---------|
-| `00000000-0000-0000-0000-000000000001` | admin@test.com   | `admin` |
-| `00000000-0000-0000-0000-000000000002` | user@test.com    | `user`  |
-
-Получить JWT для каждого из них можно через `POST /dummyLogin` (см. [Аутентификация](#аутентификация)).
-
-### Переговорки
-
-| UUID                                   | Название         | Расписание              | Мест | Назначение                                 |
-|----------------------------------------|------------------|-------------------------|------|--------------------------------------------|
-| `10000000-0000-0000-0000-000000000001` | Переговорная 1   | пн–пт, 09:00–18:00      | 12   | 18 слотов в рабочий день; выходные — пусто |
-| `10000000-0000-0000-0000-000000000002` | Переговорная 2   | каждый день, 08:00–20:00 | 4   | 24 слота в любой день                      |
-| `10000000-0000-0000-0000-000000000003` | Переговорная 3   | нет расписания          | 8    | `GET /slots/list` всегда возвращает `[]`   |
-
-Слоты создаются при первом обращении к `GET /rooms/{roomId}/slots/list?date=`. До этого вызова слоты в базе данных отсутствуют. UUID слотов при повторных запросах той же даты не меняются — вставка идемпотентна через `ON CONFLICT DO NOTHING`.
-
----
-
-## Аутентификация
-
-Все эндпоинты, кроме `/_info`, `/dummyLogin`, `/register`, `/login`, требуют JWT в заголовке:
-
-```
-Authorization: Bearer <токен>
-```
-
-### dummyLogin
-
-Основной способ получить токен для тестирования. Для каждой роли возвращается **фиксированный UUID** пользователя — это обеспечивает стабильность при проверке владельца брони.
-
-```bash
-# Токен администратора
-curl -s -X POST http://localhost:8080/dummyLogin \
-  -H "Content-Type: application/json" \
-  -d '{"role": "admin"}'
-
-# Токен пользователя
-curl -s -X POST http://localhost:8080/dummyLogin \
-  -H "Content-Type: application/json" \
-  -d '{"role": "user"}'
-```
-
-Время жизни токена — 24 часа.
-
-### Регистрация и вход по паролю *(дополнительное задание)*
-
-Реализованы эндпоинты `POST /register` и `POST /login`. Системные пользователи (`admin@test.com`, `user@test.com`) не имеют пароля и не могут войти через `/login` — только через `/dummyLogin`.
-
----
-
-## Типичный сценарий
-
-Предполагается, что выполнен `make seed`. Переговорная 2 доступна каждый день — подходит для любой даты.
-
-**Шаг 1. Получить токен пользователя**
-
-```bash
-curl -X POST http://localhost:8080/dummyLogin \
-  -H "Content-Type: application/json" \
-  -d '{"role":"user"}'
-```
-Ответ: `{"token":"eyJ..."}` — скопируйте значение `token`.
-
-**Шаг 2. Получить свободные слоты** (подставьте токен и любую будущую дату)
-
-```bash
-curl "http://localhost:8080/rooms/10000000-0000-0000-0000-000000000002/slots/list?date=YYYY-MM-DD" \
-  -H "Authorization: Bearer <TOKEN>"
-```
-Ответ: `{"slots":[{"id":"xxxxxxxx-...","start":"..."},...]}`  — скопируйте `id` любого слота.
-
-**Шаг 3. Создать бронь** (подставьте токен и `id` слота из шага 2)
-
-```bash
-curl -X POST http://localhost:8080/bookings/create \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"slotId":"<SLOT_ID>","createConferenceLink":true}'
-```
-Ответ: `{"booking":{"id":"xxxxxxxx-...","conferenceLink":"https://...","status":"active",...}}` — скопируйте `booking.id`.
-
-**Шаг 4. Отменить бронь** (повторный вызов также вернёт 200)
-
-```bash
-curl -X POST http://localhost:8080/bookings/<BOOKING_ID>/cancel \
-  -H "Authorization: Bearer <TOKEN>"
-```
-
----
-
-## Описание API
-
-Полная спецификация: [`api.yaml`](api.yaml)
-
-### Служебные
-
-| Метод | Путь     | Роль | Описание                         |
-|-------|----------|------|----------------------------------|
-| GET   | `/_info` | —    | Проверка доступности, всегда 200 |
-
-```bash
-curl http://localhost:8080/_info
-```
-
-### Аутентификация
-
-| Метод | Путь          | Роль | Описание                                       |
-|-------|---------------|------|------------------------------------------------|
-| POST  | `/dummyLogin` | —    | Тестовый JWT по роли — обязательный эндпоинт   |
-| POST  | `/register`   | —    | Регистрация по email и паролю *(доп. задание)*  |
-| POST  | `/login`      | —    | Вход по email и паролю *(доп. задание)*         |
-
-```bash
-curl -X POST http://localhost:8080/dummyLogin \
-  -H "Content-Type: application/json" \
-  -d '{"role":"user"}'
-
-curl -X POST http://localhost:8080/register \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123","role":"user"}'
-
-curl -X POST http://localhost:8080/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"password123"}'
-```
-
-### Переговорки
-
-| Метод | Путь            | Роль        | Описание                |
-|-------|-----------------|-------------|-------------------------|
-| GET   | `/rooms/list`   | admin, user | Список всех переговорок |
-| POST  | `/rooms/create` | admin       | Создать переговорку     |
-
-```bash
-curl http://localhost:8080/rooms/list \
-  -H "Authorization: Bearer <TOKEN>"
-
-curl -X POST http://localhost:8080/rooms/create \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Переговорная 4","description":"Описание","capacity":8}'
-```
-
-### Расписания
-
-| Метод | Путь                              | Роль  | Описание                                             |
-|-------|-----------------------------------|-------|------------------------------------------------------|
-| POST  | `/rooms/{roomId}/schedule/create` | admin | Создать расписание (один раз, изменить нельзя — 409) |
-
-Если `roomId` указан и в пути, и в теле запроса, используется значение из пути.
-
-```bash
-curl -X POST http://localhost:8080/rooms/10000000-0000-0000-0000-000000000003/schedule/create \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"daysOfWeek":[1,2,3,4,5],"startTime":"09:00","endTime":"18:00"}'
-```
-
-### Слоты
-
-| Метод | Путь                                         | Роль        | Описание                |
-|-------|----------------------------------------------|-------------|-------------------------|
-| GET   | `/rooms/{roomId}/slots/list?date=YYYY-MM-DD` | admin, user | Свободные слоты по дате |
-
-Параметр `date` обязателен. Возвращает только слоты без активной брони. Если переговорка не работает в указанный день недели или не имеет расписания — возвращается пустой список.
-
-```bash
-curl "http://localhost:8080/rooms/10000000-0000-0000-0000-000000000002/slots/list?date=YYYY-MM-DD" \
-  -H "Authorization: Bearer <TOKEN>"
-```
-
-### Брони
-
-| Метод | Путь                           | Роль  | Описание                                             |
-|-------|--------------------------------|-------|------------------------------------------------------|
-| POST  | `/bookings/create`             | user  | Создать бронь; опционально — ссылка на конференцию   |
-| GET   | `/bookings/list`               | admin | Все брони с пагинацией (`page`, `pageSize`, max 100) |
-| GET   | `/bookings/my`                 | user  | Активные брони текущего пользователя на будущие слоты |
-| POST  | `/bookings/{bookingId}/cancel` | user  | Отменить свою бронь                                  |
-
-`GET /bookings/my` возвращает только брони со статусом `active` и временем начала слота в будущем. Отменённые и прошедшие брони не включаются.
-
-`POST /bookings/{bookingId}/cancel` — идемпотентная операция: повторный вызов на уже отменённой брони возвращает 200 с актуальным состоянием.
-
-```bash
-curl -X POST http://localhost:8080/bookings/create \
-  -H "Authorization: Bearer <USER_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"slotId":"<SLOT_ID>","createConferenceLink":true}'
-
-curl "http://localhost:8080/bookings/list?page=1&pageSize=20" \
-  -H "Authorization: Bearer <ADMIN_TOKEN>"
-
-curl http://localhost:8080/bookings/my \
-  -H "Authorization: Bearer <USER_TOKEN>"
-
-curl -X POST http://localhost:8080/bookings/<BOOKING_ID>/cancel \
-  -H "Authorization: Bearer <USER_TOKEN>"
-```
+| Сервис | Порт | README |
+|--------|------|--------|
+| **booking-service** | `8080` | [booking-service/README.md](booking-service/README.md) |
+| **notification-service** | `8081` | [notification-service/README.md](notification-service/README.md) |
 
 ---
 
 ## Архитектура
 
-
 ```
-Middleware   (JWT-аутентификация, проверка роли)
-    ↓
-Handler      (HTTP: парсинг, валидация входа, маппинг ответа)
-    ↓  каждый handler объявляет свой интерфейс к соответствующему сервису
-Service      (бизнес-логика)
-    ↓  каждый сервис объявляет свой интерфейс к соответствующему репозиторию
-Repository   (SQL-запросы, работа с БД)
-    ↓
-PostgreSQL
-
-Service -> ConferenceClient  (заглушка, вызывается при createConferenceLink: true)
-```
-
-### Структура проекта
-
-```
-cmd/                        — точка входа (main.go, graceful shutdown, DI)
-internal/
-  config/                   — конфигурация через os.Getenv
-  http/
-    handlers/               — HTTP-обработчики (парсинг, валидация, маппинг)
-    middleware/             — JWT-аутентификация, проверка роли
-  service/
-    auth/                   — dummyLogin, register, login
-    booking/                — создание и отмена броней
-    room/                   — управление переговорками
-    schedule/               — создание расписания
-    slot/                   — генерация и выдача слотов
-  repo/
-    auth/                   — работа с таблицей users
-    booking/                — работа с таблицей bookings
-    room/                   — работа с таблицей rooms
-    schedule/               — работа с таблицей schedules
-    slot/                   — работа с таблицей slots
-    testutil/               — вспомогательный код для интеграционных тестов
-  model/                    — доменные модели и sentinel-ошибки
-  client/conference/        — заглушка внешнего конференц-сервиса
-  pkg/jwt/                  — генерация и парсинг JWT
-  postgres/                 — инициализация pgxpool
-migrations/                 — golang-migrate, отдельные up/down файлы на каждую таблицу
-mocks/                      — сгенерированные моки (mockery, не редактировать вручную)
-e2e/                        — E2E тесты (build tag: e2e)
-scripts/                    — seed.sql для make seed
+┌──────────────────────────────────────────────────────────────┐
+│                         Client                               │
+│     REST (JWT)                              SSE stream       │
+└─────────┬────────────────────────────────────────┬───────────┘
+          │                                        │
+          ▼                                        ▼
+┌───────────────────┐                  ┌───────────────────────┐
+│   booking-service │                  │ notification-service  │
+│   :8080           │                  │ :8081                 │
+│                   │                  │                       │
+│  Handler          │                  │  Handler              │
+│  Service          │                  │  Service              │
+│  Repository       │                  │  Repository           │
+│  Outbox Relay ────┼────► Kafka ──────┼► Kafka Consumer       │
+│       │           │  booking.events  │       │               │
+│       ▼           │                  │       ▼               │
+│  PostgreSQL       │                  │  PostgreSQL           │
+│  (booking-db)     │                  │  (notification-db)    │
+└───────────────────┘                  └───────────────────────┘
 ```
 
-### Стек
+### Поток события бронирования
 
-| Компонент      | Выбор              |
-|----------------|--------------------|
-| Язык           | Go 1.25            |
-| HTTP-роутер    | chi v5             |
-| База данных    | PostgreSQL 15      |
-| Драйвер        | pgx/v5             |
-| Пул соединений | pgxpool (max 20)   |
-| Миграции       | golang-migrate     |
-| Конфигурация   | os.Getenv          |
-| Логирование    | slog               |
-| Тесты          | testify + mockery  |
-| Линтер         | golangci-lint      |
-| Профилирование | pprof (`:6060`)    |
+```
+POST /bookings/create
+        │
+        ▼
+  Booking saved          ← транзакция #1
+  Outbox record saved    ← та же транзакция (atomicity)
+        │
+        ▼
+  Outbox Relay           ← фоновая горутина, FOR UPDATE SKIP LOCKED
+  publishes to Kafka
+        │
+        ▼
+  Kafka: booking.events
+        │
+        ▼
+  Kafka Consumer         ← notification-service
+  (at-least-once)
+        │
+        ▼
+  INSERT notification    ← ON CONFLICT DO NOTHING (идемпотентность)
+        │
+        ▼
+  SSE Hub.Broadcast()    ← мгновенная доставка подключённым клиентам 
+```
 
 ---
 
-## Схема данных
+## Стек
 
-| Сущность    | Основные поля                                                                 | Примечание                                      |
-|-------------|-------------------------------------------------------------------------------|-------------------------------------------------|
-| `users`     | `id` PK, `email` UK, `password` (nullable), `role`, `created_at`             | роль: `admin` или `user`                        |
-| `rooms`     | `id` PK, `name`, `description` (nullable), `capacity` (nullable), `created_at` | переговорная комната                           |
-| `schedules` | `id` PK, `room_id` FK, `days_of_week` (int[]), `start_time`, `end_time`      | у каждой комнаты не более одного расписания     |
-| `slots`     | `id` PK, `room_id` FK, `start_at`, `end_at`                                  | генерируются лениво при первом запросе на дату  |
-| `bookings`  | `id` PK, `slot_id` FK, `user_id` FK, `status`, `conference_link` (nullable)  | статус: `active` / `cancelled`                  |
-
-**Связи:**
-
-- `rooms` → `schedules` — 1:1 (у комнаты не более одного расписания)
-- `rooms` → `slots` — 1:N (комната имеет множество слотов)
-- `slots` → `bookings` — 1:N (один слот может иметь историю отменённых броней, но только одну активную)
-- `users` → `bookings` — 1:N (пользователь может иметь несколько броней)
+| Компонент | Выбор |
+|-----------|-------|
+| Язык | Go 1.25, Go Workspaces |
+| HTTP-роутер | [chi v5](https://github.com/go-chi/chi) |
+| База данных | PostgreSQL 15 |
+| Драйвер БД | [pgx/v5](https://github.com/jackc/pgx) |
+| Миграции | [golang-migrate](https://github.com/golang-migrate/migrate) |
+| Брокер | Kafka (KRaft, без ZooKeeper) |
+| Kafka-клиент | [segmentio/kafka-go](https://github.com/segmentio/kafka-go) |
+| Push-уведомления | SSE (Server-Sent Events) |
+| Аутентификация | JWT (HS256) |
+| Конфигурация | `os.Getenv`, `mustEnv`/`optEnv` |
+| Логирование | `slog` |
+| Тесты | [testify](https://github.com/stretchr/testify) + [mockery](https://github.com/vektra/mockery) |
+| Линтер | [golangci-lint](https://golangci-lint.run) |
+| Нагрузочные тесты | [k6](https://k6.io) |
 
 ---
 
-## Архитектурные решения
+## Требования
 
-### Ленивая генерация слотов
+- [Docker](https://docs.docker.com/get-docker/) + [Docker Compose](https://docs.docker.com/compose/) v2
+- [Go 1.25+](https://go.dev/dl/) — только для локальной разработки и тестов
+- [golangci-lint](https://golangci-lint.run/usage/install/) — для `make lint`
 
-Слоты создаются **при первом запросе** `GET /rooms/{roomId}/slots/list?date=`, а не заранее.
+---
 
-При запросе выполняется пакетная вставка `INSERT ... ON CONFLICT (room_id, start_at) DO NOTHING`. При повторном запросе той же даты все вставки не вносят изменений в данные, UUID слотов остаются прежними — бронирование по `slotId` стабильно.
+## Быстрый старт
 
-Альтернатива — заранее генерировать слоты по расписанию через планировщик — требует фонового процесса, который является дополнительной точкой отказа. Ленивый подход проще, а согласно условиям задания 99,9% запросов приходится на ближайшие 7 дней, поэтому повторная вставка на практике всегда будет мгновенной.
+```bash
+# 1. Клонировать и перейти в директорию
+git clone <repo-url>
+cd meeting-room-booking-system
 
-### Защита от состояния гонки при бронировании
+# 2. Создать .env из шаблона и заполнить обязательные переменные
+cp .env.example .env
 
-При одновременных запросах на один слот защита полностью обеспечивается базой данных через **частичный уникальный индекс**:
+# 3. Запустить всю инфраструктуру
+make up
 
-```sql
-CREATE UNIQUE INDEX idx_bookings_slot_active
-    ON bookings (slot_id) WHERE status = 'active';
+# 4. Загрузить тестовые данные (переговорки + расписания + системные пользователи)
+make seed
 ```
 
-При одновременной вставке одна из транзакций получит ошибку уникальности (SQLSTATE 23505), которая преобразуется в HTTP 409 `SLOT_ALREADY_BOOKED`. Явные блокировки (`SELECT FOR UPDATE`) не используются — уникальный индекс обеспечивает оптимистичную блокировку без снижения пропускной способности.
+После старта:
 
-Этот же индекс разрешает повторное бронирование слота после отмены: отменённых броней на один слот может быть любое количество, активная — только одна.
+| Сервис | URL |
+|--------|-----|
+| Booking API | http://localhost:8080 |
+| Notification API | http://localhost:8081 |
+| Kafka UI | http://localhost:8090 |
 
-### Атомарная отмена + идемпотентность
+Остановить и удалить данные:
 
-Отмена реализована одним запросом без явной транзакции:
-
-```sql
-UPDATE bookings SET status = 'cancelled'
-WHERE id = $1 AND status = 'active' AND user_id = $2
-RETURNING ...
+```bash
+make down        # остановить, данные сохранить
+make down-clean  # остановить и удалить все volumes
 ```
 
-Если запрос не нашёл строку (`pgx.ErrNoRows`), выполняется уточняющий `SELECT`:
-- бронь не найдена → 404
-- чужой `user_id` → 403
-- наш `user_id`, статус уже `cancelled` → 200 (идемпотентность)
+---
 
-Проверка владельца встроена в условие `WHERE` атомарно — состояние гонки между «проверить» и «обновить» невозможно.
+## Переменные окружения
 
-### Поведение при сбое сервиса конференций
+Скопируйте `.env.example` в `.env`. Перед деплоем обязательно замените значения по умолчанию.
 
-При создании брони с `createConferenceLink: true`:
+**Обязательные** (сервис не запустится без них):
 
-1. Бронь сохраняется в базе данных.
-2. Отправляется запрос к сервису конференций (заглушка).
-3. При успехе — ссылка сохраняется в бронь и возвращается клиенту.
-4. При ошибке на любом из шагов (недоступность сервиса или сбой последующего `UPDATE`) — ошибка логируется, бронь возвращается без ссылки (`conferenceLink: null`). Бронь **не откатывается**.
+| Переменная | Кто использует |
+|------------|----------------|
+| `BOOKING_DATABASE_HOST` / `_USER` / `_PASSWORD` / `_NAME` | booking-service |
+| `NOTIFICATION_DATABASE_HOST` / `_USER` / `_PASSWORD` / `_NAME` | notification-service |
+| `JWT_SECRET` | оба сервиса (общий секрет) |
+| `KAFKA_BROKERS` | оба сервиса |
 
-Откатывать успешно созданную бронь из-за сбоя внешнего сервиса означает, что работоспособность нашего сервиса зависит от доступности стороннего. Потеря ссылки принимается как допустимая.
+**Опциональные**:
 
-### `/rooms/list` без пагинации
+| Переменная | Дефолт | Описание |
+|------------|--------|----------|
+| `BOOKING_SERVER_PORT` | `8080` | Порт booking-service |
+| `NOTIFICATION_SERVER_PORT` | `8081` | Порт notification-service |
+| `BOOKING_DATABASE_PORT` / `NOTIFICATION_DATABASE_PORT` | `5432` | Порт PostgreSQL |
+| `KAFKA_TOPIC_BOOKING_EVENTS` | `booking.events` | Топик событий |
+| `KAFKA_GROUP_ID` | `notification-service` | Consumer group |
+| `KAFKA_EXTERNAL_PORT` | `9094` | Внешний порт Kafka |
+| `KAFKA_UI_PORT` | `8090` | Порт Kafka UI |
 
-Список переговорок возвращается целиком без пагинации. Условие задания явно ограничивает объём: «до 50 переговорок». Пагинация 50 записей избыточна и усложняет клиентский код без реальной пользы. `/bookings/list` пагинирован, потому что ТЗ явно это требует и объём до 100k записей.
+---
 
-### Рост таблицы `slots`
+## Сквозной сценарий
 
-Таблица `slots` растёт бесконечно из-за ленивой генерации (~1k слотов/день × 50 комнат). Прошлые слоты не нужны ни для бронирования, ни для `/bookings/my` (там фильтр `start_at >= now`).
+Пример полного цикла: получить токен → найти свободный слот → забронировать → получить уведомление.
 
-Очистка не реализована в рамках задания. Можно применить стратегию периодической очитски по cron фоновым процессом:
+**1. Получить JWT**
 
-```sql
-DELETE FROM bookings WHERE slot_id IN (
-    SELECT id FROM slots WHERE end_at < NOW() - INTERVAL '30 days'
-);
-DELETE FROM slots WHERE end_at < NOW() - INTERVAL '30 days';
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/dummyLogin \
+  -H "Content-Type: application/json" \
+  -d '{"role":"user"}' | jq -r .token)
 ```
 
-### Валидации сверх ТЗ
+**2. Получить свободные слоты** (Переговорная 2 работает каждый день)
 
-Следующие граничные случаи в задании не описаны — решения приняты самостоятельно:
+```bash
+curl -s "http://localhost:8080/rooms/10000000-0000-0000-0000-000000000002/slots/list?date=$(date +%Y-%m-%d --date='+1 day')" \
+  -H "Authorization: Bearer $TOKEN" | jq .
+```
 
-| Поле | Правило | Код | Обоснование |
-|------|---------|-----|-------------|
-| `daysOfWeek` | нет дубликатов | 400 | дубликаты — ошибка на стороне клиента; молча дедуплицировать значит скрывать её |
-| `startTime` / `endTime` | минуты кратны 30 (00 или 30) | 400 | иначе слоты начинались бы в нестандартное время; явный запрет честнее округления |
-| `endTime` | строго позже `startTime` минимум на 30 мин | 400 | диапазон меньше одного слота делает расписание бесполезным |
-| `password` при регистрации | не более 72 байт | 400 | bcrypt молча обрезает на 72 байтах — два разных пароля могут дать одинаковый хеш |
-| `email` при регистрации | не пустой, содержит `@` | 400 | полная валидация по стандарту избыточна; уникальность гарантирует БД |
+**3. Создать бронь**
+
+```bash
+SLOT_ID="<id из шага 2>"
+
+curl -s -X POST http://localhost:8080/bookings/create \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"slotId\":\"$SLOT_ID\",\"createConferenceLink\":true}" | jq .
+```
+
+**4. Подключиться к SSE-стриму уведомлений** *(Phase 5 — не реализовано)*
+
+```bash
+# Сначала получить одноразовый токен (EventSource не поддерживает кастомные заголовки)
+SSE_TOKEN=$(curl -s -X POST http://localhost:8081/sse-token \
+  -H "Authorization: Bearer $TOKEN" | jq -r .token)
+
+# Подписаться на поток
+curl -N "http://localhost:8081/notifications/stream?token=$SSE_TOKEN"
+```
+
+---
+
+## Структура монорепо
+
+```
+.
+├── booking-service/          — сервис бронирования
+│   ├── cmd/                  — точка входа
+│   ├── internal/             — вся бизнес-логика
+│   ├── migrations/           — схема БД (golang-migrate)
+│   ├── e2e/                  — E2E тесты
+│   ├── loadtest/             — k6 скрипт и результаты
+│   ├── scripts/              — seed.sql
+│   ├── api.yaml              — OpenAPI-спецификация
+│   ├── Dockerfile
+│   └── docker-compose.yaml   — standalone-запуск сервиса
+│
+├── notification-service/     — сервис уведомлений
+│   ├── cmd/                  — точка входа
+│   ├── internal/             — Kafka consumer, REST API (SSE Hub — Phase 5)
+│   ├── migrations/           — схема БД
+│   ├── Dockerfile
+│   └── docker-compose.yaml   — standalone-запуск сервиса
+│
+├── shared/
+│   └── events/               — общий Go-модуль: BookingEvent (схема Kafka-сообщения)
+│
+├── docker-compose.yaml       — корневой compose: Kafka, Kafka UI + include сервисов
+├── .env.example              — шаблон переменных окружения
+├── Makefile                  — команды для всего монорепо
+├── go.work                   — Go Workspace (booking-service, notification-service, shared/events)
+└── go.work                   — Go Workspace (booking-service, notification-service, shared/events)
+```
+
+Go Workspace позволяет работать с модулями локально без `replace`-директив: изменения в `shared/events` сразу видны в обоих сервисах.
+
+---
+
+## Команды
+
+### Инфраструктура
+
+| Команда | Описание |
+|---------|----------|
+| `make up` | Поднять всю инфраструктуру (все сервисы + Kafka) |
+| `make down` | Остановить, данные сохранить |
+| `make down-clean` | Остановить и удалить все volumes |
+| `make seed` | Загрузить тестовые данные в booking-service |
+
+### booking-service
+
+| Команда | Описание |
+|---------|----------|
+| `make booking-test` | Юнит-тесты + итоговый процент покрытия |
+| `make booking-test-integration` | Интеграционные тесты репозиториев (поднимает PostgreSQL на :5433) |
+| `make booking-test-e2e` | E2E тесты (поднимает PostgreSQL на :5434) |
+| `make booking-mock` | Перегенерировать моки через mockery |
+| `make booking-load-test` | Нагрузочный тест k6 (требует `make up && make seed`) |
+
+### notification-service
+
+| Команда | Описание |
+|---------|----------|
+| `make notification-test-integration` | Интеграционные тесты репозиториев (поднимает PostgreSQL на :5435) |
+
+### Качество кода
+
+| Команда | Описание |
+|---------|----------|
+| `make lint` | golangci-lint по всем сервисам |
 
 ---
 
 ## Тестирование
 
-Три уровня:
+Три уровня по каждому сервису:
 
-| Уровень        | Что проверяет                           | Инструменты            | Build tag     |
-|----------------|-----------------------------------------|------------------------|---------------|
-| Юнит           | Бизнес-логика сервисов, JWT, middleware | testify + mockery      | —             |
-| Интеграционный | SQL-запросы репозиториев на реальной БД | testify + pgx/v5       | `integration` |
-| E2E            | Сквозные сценарии через HTTP            | testify + httptest     | `e2e`         |
+| Уровень | Что проверяет | Build tag |
+|---------|---------------|-----------|
+| Юнит | Бизнес-логика, JWT, middleware | — |
+| Интеграционный | SQL-запросы репозиториев на реальной БД | `integration` |
+| E2E | Сквозные HTTP-сценарии | `e2e` |
 
-Интеграционные и E2E тесты используют build-теги (`//go:build integration`, `//go:build e2e`), поэтому `go test ./...` запускает только юнит-тесты. Для интеграционных и E2E тестов используйте `make test-integration` и `make test-e2e` — они поднимают отдельный PostgreSQL-контейнер и сносят его после завершения.
-
-### Обязательные сценарии из задания
-
-1. Создание переговорки -> создание расписания -> создание брони пользователем
-2. Отмена брони пользователем -> повторная отмена (идемпотентность)
-
-### Команды
-
-```bash
-# Юнит-тесты + итоговый процент покрытия (на момент последнего коммита: 52%)
-make test
-
-# Интеграционные тесты репозиториев
-# Поднимает PostgreSQL на порту 5433, после завершения сносит
-make test-integration
-
-# E2E тесты
-# Поднимает полный стек на порту 5434, после завершения сносит
-make test-e2e
-```
+Интеграционные и E2E тесты поднимают изолированный PostgreSQL-контейнер и сносят его после завершения. `go test ./...` без тегов запускает только юнит-тесты.
 
 ---
 
-## Нагрузочное тестирование
+## Производительность и требования
 
-Используется [k6](https://k6.io) через Docker — ничего устанавливать не нужно.
+Ключевые числа, которые определили архитектурные решения. Полное обоснование — в [REQUIREMENTS.md](REQUIREMENTS.md).
+
+### Объём данных
+
+| Сущность | Максимум |
+|----------|----------|
+| Переговорки | 50 |
+| Слотов в день | 1 000 |
+| Пользователей | 10 000 |
+| Броней | 100 000 |
+
+### Нагрузка
+
+| Метрика | Значение |
+|---------|----------|
+| Суммарный RPS (booking-service) | 100 |
+| Read / Write | 80 / 20 |
+| Пиковых событий в Kafka | ~20/сек |
+| Concurrent SSE-соединений | ~500 |
+
+### SLA
+
+| Метрика | Цель |
+|---------|------|
+| Availability booking-service | 99.9% |
+| Latency `GET /slots` p95 | < 200ms |
+| Delivery latency уведомления p95 | < 1s |
+
+### Гарантии доставки
+
+**At-least-once** через Outbox pattern:
+- событие записывается в `outbox` в одной транзакции с бронью — потеря исключена
+- Kafka consumer commit-ит offset после сохранения в БД — дубли возможны при рестарте
+- `UNIQUE (booking_id, type)` + `ON CONFLICT DO NOTHING` — дубли идемпотентно игнорируются
+
+---
+
+## Разработка
+
+### Добавить новый сервис
+
+1. Создать директорию `my-service/` с `go.mod` (`module github.com/bober-17/meeting-room-booking-system/my-service`)
+2. Добавить `./my-service` в `go.work`
+3. Создать `my-service/docker-compose.yaml` и добавить `include:` в корневой `docker-compose.yaml`
+4. Добавить команды в `Makefile` с префиксом `my-service-`
+
+### Изменить контракт Kafka
+
+Схема события живёт в `shared/events/events.go`. Оба сервиса используют этот модуль через Go Workspace — изменения применяются без пересборки зависимостей.
+
+### Локальный запуск без Docker
+
+Сервисные compose не пробрасывают порты БД на хост. Для запуска бинарника локально
+нужна отдельная PostgreSQL (например, системная установка или `docker run` с `-p 5432:5432`).
 
 ```bash
-make up && make seed
-make load-test
-```
+# booking-service
+cd booking-service
+BOOKING_DATABASE_HOST=localhost \
+BOOKING_DATABASE_USER=postgres \
+BOOKING_DATABASE_PASSWORD=password \
+BOOKING_DATABASE_NAME=booking \
+JWT_SECRET=supersecretkey \
+KAFKA_BROKERS=localhost:9094 \
+  go run ./cmd/main.go
 
-Скрипт (`loadtest/script.js`) прогоняет два сценария параллельно: 100 RPS на получение слотов и 10 RPS на создание + отмену броней, 1 минута. После завершения отчёт сохраняется в `loadtest/results/report.txt`.
-
-Результаты последнего прогона — [`loadtest/results/report.txt`](loadtest/results/report.txt):
-
-```
-slots_duration p(95) = 6.58ms   (порог < 200ms)
-http_req_failed      = 0.00%    (порог < 0.1%)
-
-p50: 4.60ms  p90: 6.10ms  p95: 6.58ms  max: 13.83ms
-всего запросов: 6604, ошибок: 0
+# notification-service (в отдельном терминале)
+cd notification-service
+NOTIFICATION_DATABASE_HOST=localhost \
+NOTIFICATION_DATABASE_USER=postgres \
+NOTIFICATION_DATABASE_PASSWORD=password \
+NOTIFICATION_DATABASE_NAME=notifications \
+JWT_SECRET=supersecretkey \
+KAFKA_BROKERS=localhost:9094 \
+  go run ./cmd/main.go
 ```

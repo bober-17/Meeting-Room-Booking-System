@@ -1,7 +1,7 @@
 go 1.25.1
 
 use (
-	.
+	./booking-service
 	./notification-service
 	./shared/events
 )

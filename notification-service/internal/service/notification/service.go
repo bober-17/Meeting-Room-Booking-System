@@ -20,7 +20,7 @@ func (s *Service) CreateFromEvent(_ context.Context, _ events.BookingEvent) erro
 	panic("not implemented")
 }
 
-func (s *Service) ListByUserID(_ context.Context, _ string, _, _ int) ([]model.Notification, error) {
+func (s *Service) ListByUserID(_ context.Context, _ string, _, _ int) ([]model.Notification, int, error) {
 	panic("not implemented")
 }
 

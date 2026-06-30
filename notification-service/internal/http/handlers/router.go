@@ -8,6 +8,5 @@ import (
 
 func NewRouter() http.Handler {
 	r := chi.NewRouter()
-	// маршруты будут добавлены далее
 	return r
 }
