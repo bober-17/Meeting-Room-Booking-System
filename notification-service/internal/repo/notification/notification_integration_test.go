@@ -4,7 +4,6 @@ package notification_test
 
 import (
 	"context"
-	"errors"
 	"log"
 	"os"
 	"testing"
@@ -60,15 +59,19 @@ func TestCreate_Idempotent(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 
-	require.NoError(t, repo.Create(ctx, n))
+	inserted, err := repo.Create(ctx, n)
+	require.NoError(t, err)
+	assert.True(t, inserted, "первая вставка должна вернуть true")
 
 	// Симулируем повторную доставку из Kafka: новый ID, те же booking_id + type.
 	// ON CONFLICT (booking_id, type) должен проигнорировать дубль.
 	n2 := n
 	n2.ID = uuid.New().String()
-	require.NoError(t, repo.Create(ctx, n2), "повторная доставка из Kafka должна быть идемпотентной")
+	inserted2, err := repo.Create(ctx, n2)
+	require.NoError(t, err, "повторная доставка из Kafka не должна возвращать ошибку")
+	assert.False(t, inserted2, "дубль должен вернуть false")
 
-	ns, total, err := repo.ListByUserID(ctx, testutil.UserID.String(), 10, 0)
+	ns, total, err := repo.ListByUserID(ctx, testutil.UserID.String(), 10, 0, false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, total)
 	assert.Len(t, ns, 1)
@@ -86,12 +89,12 @@ func TestListByUserID_Pagination(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	ns, total, err := repo.ListByUserID(ctx, testutil.UserID.String(), 3, 0)
+	ns, total, err := repo.ListByUserID(ctx, testutil.UserID.String(), 3, 0, false)
 	require.NoError(t, err)
 	assert.Equal(t, 5, total)
 	assert.Len(t, ns, 3)
 
-	ns2, _, err := repo.ListByUserID(ctx, testutil.UserID.String(), 3, 3)
+	ns2, _, err := repo.ListByUserID(ctx, testutil.UserID.String(), 3, 3, false)
 	require.NoError(t, err)
 	assert.Len(t, ns2, 2)
 }
@@ -103,10 +106,10 @@ func TestMarkAsRead_NotFound(t *testing.T) {
 	repo := reponotification.New(pool)
 
 	err := repo.MarkAsRead(ctx, uuid.New().String(), testutil.UserID.String())
-	assert.True(t, errors.Is(err, model.ErrNotificationNotFound), "got: %v", err)
+	assert.ErrorIs(t, err, model.ErrNotificationNotFound)
 }
 
-func TestMarkAsRead_WrongUser_Returns404(t *testing.T) {
+func TestMarkAsRead_WrongUser_NotFound(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, testutil.TruncateTables(ctx, pool))
 
@@ -118,7 +121,7 @@ func TestMarkAsRead_WrongUser_Returns404(t *testing.T) {
 
 	otherUser := uuid.New()
 	markErr := repo.MarkAsRead(ctx, id.String(), otherUser.String())
-	assert.True(t, errors.Is(markErr, model.ErrNotificationNotFound), "чужое уведомление должно возвращать 404, got: %v", markErr)
+	assert.ErrorIs(t, markErr, model.ErrNotificationNotFound)
 }
 
 func TestMarkAllAsRead(t *testing.T) {
@@ -135,9 +138,34 @@ func TestMarkAllAsRead(t *testing.T) {
 
 	require.NoError(t, repo.MarkAllAsRead(ctx, testutil.UserID.String()))
 
-	ns, _, err := repo.ListByUserID(ctx, testutil.UserID.String(), 10, 0)
+	ns, _, err := repo.ListByUserID(ctx, testutil.UserID.String(), 10, 0, false)
 	require.NoError(t, err)
 	for _, n := range ns {
 		assert.True(t, n.IsRead)
+	}
+}
+
+func TestListByUserID_UnreadOnly(t *testing.T) {
+	ctx := context.Background()
+	require.NoError(t, testutil.TruncateTables(ctx, pool))
+
+	repo := reponotification.New(pool)
+	future := time.Now().UTC().Add(time.Hour)
+
+	// 3 уведомления, из них 1 прочитано
+	ids := make([]uuid.UUID, 3)
+	for i := range ids {
+		id, err := testutil.InsertNotification(ctx, pool, testutil.UserID, uuid.New(), string(model.TypeBookingCreated), future.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, err)
+		ids[i] = id
+	}
+	require.NoError(t, repo.MarkAsRead(ctx, ids[0].String(), testutil.UserID.String()))
+
+	ns, total, err := repo.ListByUserID(ctx, testutil.UserID.String(), 10, 0, true)
+	require.NoError(t, err)
+	assert.Equal(t, 2, total, "total должен считать только непрочитанные")
+	assert.Len(t, ns, 2)
+	for _, n := range ns {
+		assert.False(t, n.IsRead)
 	}
 }

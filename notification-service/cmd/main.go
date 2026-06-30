@@ -56,7 +56,7 @@ func run() error {
 	logger.Info("migrations applied")
 
 	repo := notifRepo.New(pool)
-	svc := notifService.New(repo, nil)
+	svc := notifService.New(repo, nil, logger)
 
 	_ = svc // будет передан в handlers в фазе 6
 

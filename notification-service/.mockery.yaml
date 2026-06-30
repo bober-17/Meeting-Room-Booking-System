@@ -1,0 +1,9 @@
+with-expecter: true
+outpkg: mocks
+dir: mocks
+
+packages:
+  github.com/bober-17/meeting-room-booking-system/notification-service/internal/service/notification:
+    interfaces:
+      Repository:
+      Hub:

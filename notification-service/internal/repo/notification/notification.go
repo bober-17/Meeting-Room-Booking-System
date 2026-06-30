@@ -17,31 +17,35 @@ func New(db *pgxpool.Pool) *Repo {
 	return &Repo{db: db}
 }
 
-func (r *Repo) Create(ctx context.Context, n model.Notification) error {
-	_, err := r.db.Exec(ctx, `
+func (r *Repo) Create(ctx context.Context, n model.Notification) (bool, error) {
+	tag, err := r.db.Exec(ctx, `
 		INSERT INTO notifications (id, user_id, type, booking_id, room_name, slot_start, slot_end, is_read, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (booking_id, type) DO NOTHING`,
 		n.ID, n.UserID, n.Type, n.BookingID, n.RoomName, n.SlotStart, n.SlotEnd, n.IsRead, n.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("create notification: %w", err)
+		return false, fmt.Errorf("create notification: %w", err)
 	}
-	return nil
+	return tag.RowsAffected() == 1, nil
 }
 
-func (r *Repo) ListByUserID(ctx context.Context, userID string, limit, offset int) ([]model.Notification, int, error) {
+func (r *Repo) ListByUserID(ctx context.Context, userID string, limit, offset int, unreadOnly bool) ([]model.Notification, int, error) {
+	filter := `WHERE user_id = $1`
+	if unreadOnly {
+		filter += ` AND is_read = false`
+	}
+
 	var total int
 	if err := r.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM notifications WHERE user_id = $1`, userID,
+		`SELECT COUNT(*) FROM notifications `+filter, userID,
 	).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("list notifications count: %w", err)
 	}
 
-	rows, err := r.db.Query(ctx, `
-		SELECT id, user_id, type, booking_id, room_name, slot_start, slot_end, is_read, created_at
-		FROM notifications
-		WHERE user_id = $1
+	rows, err := r.db.Query(ctx,
+		`SELECT id, user_id, type, booking_id, room_name, slot_start, slot_end, is_read, created_at
+		FROM notifications `+filter+`
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3`,
 		userID, limit, offset,
