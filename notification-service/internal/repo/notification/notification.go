@@ -36,15 +36,10 @@ func (r *Repo) ListByUserID(ctx context.Context, userID string, limit, offset in
 		filter += ` AND is_read = false`
 	}
 
-	var total int
-	if err := r.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM notifications `+filter, userID,
-	).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("list notifications count: %w", err)
-	}
-
+	// COUNT(*) OVER() в одном запросе — нет race condition между отдельными COUNT и SELECT.
 	rows, err := r.db.Query(ctx,
-		`SELECT id, user_id, type, booking_id, room_name, slot_start, slot_end, is_read, created_at
+		`SELECT id, user_id, type, booking_id, room_name, slot_start, slot_end, is_read, created_at,
+		        COUNT(*) OVER() AS total_count
 		FROM notifications `+filter+`
 		ORDER BY created_at DESC
 		LIMIT $2 OFFSET $3`,
@@ -55,12 +50,14 @@ func (r *Repo) ListByUserID(ctx context.Context, userID string, limit, offset in
 	}
 	defer rows.Close()
 
-	var ns []model.Notification
+	ns := make([]model.Notification, 0)
+	var total int
 	for rows.Next() {
 		var n model.Notification
 		if err := rows.Scan(
 			&n.ID, &n.UserID, &n.Type, &n.BookingID,
 			&n.RoomName, &n.SlotStart, &n.SlotEnd, &n.IsRead, &n.CreatedAt,
+			&total,
 		); err != nil {
 			return nil, 0, fmt.Errorf("list notifications scan: %w", err)
 		}

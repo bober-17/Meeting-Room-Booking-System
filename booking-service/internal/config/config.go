@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"net/url"
 	"os"
 )
 
@@ -39,18 +40,18 @@ func Load() Config {
 	}
 }
 
-func (c Config) DSN() string {
-	return "host=" + c.DBHost +
-		" port=" + c.DBPort +
-		" user=" + c.DBUser +
-		" password=" + c.DBPassword +
-		" dbname=" + c.DBName +
-		" " + sslModeDisable
-}
+func (c Config) DSN() string        { return c.dsnURL("postgres") }
+func (c Config) MigrateDSN() string { return c.dsnURL("pgx5") }
 
-func (c Config) MigrateDSN() string {
-	return "pgx5://" + c.DBUser + ":" + c.DBPassword +
-		"@" + c.DBHost + ":" + c.DBPort + "/" + c.DBName + "?" + sslModeDisable
+func (c Config) dsnURL(scheme string) string {
+	u := url.URL{
+		Scheme:   scheme,
+		User:     url.UserPassword(c.DBUser, c.DBPassword),
+		Host:     c.DBHost + ":" + c.DBPort,
+		Path:     "/" + c.DBName,
+		RawQuery: sslModeDisable,
+	}
+	return u.String()
 }
 
 func mustEnv(key string) string {

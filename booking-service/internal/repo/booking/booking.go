@@ -43,7 +43,10 @@ func (r *Repo) CreateBooking(ctx context.Context, slotID, userID uuid.UUID) (mod
 			case pgerrcode.UniqueViolation:
 				return model.Booking{}, fmt.Errorf("create booking: %w", model.ErrSlotAlreadyBooked)
 			case pgerrcode.ForeignKeyViolation:
-				return model.Booking{}, fmt.Errorf("create booking: %w", model.ErrSlotNotFound)
+				if pgErr.ConstraintName == "bookings_slot_id_fkey" {
+					return model.Booking{}, fmt.Errorf("create booking: %w", model.ErrSlotNotFound)
+				}
+				return model.Booking{}, fmt.Errorf("create booking: unexpected fk violation %q: %w", pgErr.ConstraintName, err)
 			}
 		}
 		return model.Booking{}, fmt.Errorf("create booking: %w", err)
@@ -121,6 +124,7 @@ func (r *Repo) CancelBooking(ctx context.Context, id, userID uuid.UUID) (model.B
 	}
 
 	if errors.Is(err, pgx.ErrNoRows) {
+		_ = tx.Rollback(ctx) // освобождаем соединение до диагностического запроса
 		return r.diagnoseCancelFailure(ctx, id, userID)
 	}
 
@@ -164,22 +168,16 @@ func (r *Repo) diagnoseCancelFailure(ctx context.Context, id, userID uuid.UUID) 
 	}
 
 	if existing.UserID != userID {
-		return model.Booking{}, fmt.Errorf("cancel booking: %w", model.ErrForbidden)
+		return model.Booking{}, fmt.Errorf("cancel booking: %w", model.ErrBookingNotFound)
 	}
 
 	return existing, nil
 }
 
 func (r *Repo) ListBookings(ctx context.Context, page, pageSize int) ([]model.Booking, int, error) {
-	const countQ = `SELECT COUNT(*) FROM bookings`
-
-	var total int
-	if err := r.pool.QueryRow(ctx, countQ).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("list bookings count: %w", err)
-	}
-
 	const q = `
-		SELECT id, slot_id, user_id, status, conference_link, created_at
+		SELECT id, slot_id, user_id, status, conference_link, created_at,
+		       COUNT(*) OVER() AS total
 		FROM bookings
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2`
@@ -191,9 +189,10 @@ func (r *Repo) ListBookings(ctx context.Context, page, pageSize int) ([]model.Bo
 	defer rows.Close()
 
 	var bookings []model.Booking
+	var total int
 	for rows.Next() {
 		var b model.Booking
-		if err := rows.Scan(&b.ID, &b.SlotID, &b.UserID, &b.Status, &b.ConferenceLink, &b.CreatedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.SlotID, &b.UserID, &b.Status, &b.ConferenceLink, &b.CreatedAt, &total); err != nil {
 			return nil, 0, fmt.Errorf("list bookings scan: %w", err)
 		}
 		bookings = append(bookings, b)

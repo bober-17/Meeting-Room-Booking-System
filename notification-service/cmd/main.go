@@ -18,6 +18,7 @@ import (
 
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/config"
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/http/handlers"
+	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/hub"
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/kafka"
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/postgres"
 	notifRepo "github.com/bober-17/meeting-room-booking-system/notification-service/internal/repo/notification"
@@ -57,8 +58,14 @@ func run() error {
 
 	logger.Info("migrations applied")
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	h := hub.NewHub()
+	tokens := hub.NewTokenStore(ctx)
+
 	repo := notifRepo.New(pool)
-	svc := notifService.New(repo, nil, logger)
+	svc := notifService.New(repo, h, logger)
 
 	consumer := kafka.NewConsumer(
 		cfg.KafkaBrokersList(),
@@ -68,7 +75,7 @@ func run() error {
 	)
 	defer consumer.Close()
 
-	router := handlers.NewRouter()
+	router := handlers.NewRouter(cfg.JWTSecret, h, tokens, svc)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
@@ -77,9 +84,6 @@ func run() error {
 		WriteTimeout: serverWriteTimeout,
 		IdleTimeout:  serverIdleTimeout,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	var consumerWg sync.WaitGroup
 	consumerWg.Add(1)
@@ -109,16 +113,28 @@ func run() error {
 
 	select {
 	case err := <-serverErr:
+		// Сервер упал сам — отменяем ctx чтобы consumer-горутина вышла, ждём её.
+		stop()
+		consumerWg.Wait()
 		return fmt.Errorf("server: %w", err)
 	case <-ctx.Done():
 		logger.Info("shutting down")
+		// Дренируем возможную одновременную ошибку сервера.
+		select {
+		case srvErr := <-serverErr:
+			logger.Error("server also failed", "err", srvErr)
+		default:
+		}
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("server shutdown: %w", err)
+		// Graceful shutdown истёк (скорее всего активные SSE-соединения).
+		// Форсированно закрываем — это отменит r.Context() в SSE-хендлерах.
+		logger.Warn("graceful shutdown timed out, forcing close", "err", err)
+		_ = srv.Close()
 	}
 
 	consumerWg.Wait()

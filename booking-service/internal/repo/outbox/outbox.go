@@ -3,7 +3,6 @@ package outbox
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -76,9 +75,9 @@ func (r *Repo) ProcessBatch(ctx context.Context, publish func([]Record) error) e
 	}
 
 	if _, err := tx.Exec(ctx, `
-		UPDATE outbox SET sent_at = $1
-		WHERE id = ANY($2::uuid[])`,
-		time.Now().UTC(), ids,
+		UPDATE outbox SET sent_at = NOW()
+		WHERE id = ANY($1::uuid[])`,
+		ids,
 	); err != nil {
 		return fmt.Errorf("outbox mark sent: %w", err)
 	}

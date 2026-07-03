@@ -18,7 +18,7 @@ const (
 	ContextKeyRole   contextKey = "role"
 
 	authorizationHeader = "Authorization"
-	bearerPrefix        = "Bearer "
+	bearerPrefix        = "bearer " // lowercase: сравниваем без учёта регистра (RFC 7235 §2.1)
 	unauthorizedBody    = `{"error":{"code":"UNAUTHORIZED","message":"unauthorized"}}`
 )
 
@@ -33,8 +33,12 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			tokenString, ok := strings.CutPrefix(authHeader, bearerPrefix)
-			if !ok || tokenString == "" {
+			if !strings.HasPrefix(strings.ToLower(authHeader), bearerPrefix) {
+				respondUnauthorized(w)
+				return
+			}
+			tokenString := authHeader[len(bearerPrefix):]
+			if tokenString == "" {
 				respondUnauthorized(w)
 				return
 			}
@@ -52,13 +56,14 @@ func Auth(jwtSecret string) func(http.Handler) http.Handler {
 	}
 }
 
-// UserIDFromContext извлекает userID, установленный middleware Auth.
 func UserIDFromContext(ctx context.Context) uuid.UUID {
-	v, _ := ctx.Value(ContextKeyUserID).(uuid.UUID)
+	v, ok := ctx.Value(ContextKeyUserID).(uuid.UUID)
+	if !ok {
+		panic("UserIDFromContext: Auth middleware not in chain")
+	}
 	return v
 }
 
-// RoleFromContext извлекает role, установленную middleware Auth.
 func RoleFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(ContextKeyRole).(string)
 	return v

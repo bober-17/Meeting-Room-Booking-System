@@ -6,6 +6,7 @@ export
         notification-up notification-down \
         booking-test booking-test-integration booking-test-e2e \
         notification-test-integration \
+        test-e2e-system \
         lint booking-mock booking-load-test
 
 # ── Инфраструктура ────────────────────────────────────────────────────────────
@@ -90,6 +91,12 @@ notification-test-integration:
 	  result=$$?; \
 	  docker compose -f notification-service/docker-compose.test.yaml down -v; \
 	  exit $$result
+
+# ── System E2E (оба сервиса через docker-compose) ────────────────────────────
+
+test-e2e-system:
+	@echo "Сервисы должны быть запущены: make up"
+	go test -tags e2e_system -v -count=1 -timeout 60s ./e2e/...
 
 # ── Качество кода ─────────────────────────────────────────────────────────────
 

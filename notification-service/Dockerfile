@@ -22,7 +22,8 @@ COPY --from=builder --chown=app:app /app/notification-service/migrations /migrat
 
 USER app
 
-# HEALTHCHECK добавить в фазе 6 после реализации GET /health или аналогичного endpoint-а
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://localhost:8081/_info || exit 1
 
 EXPOSE 8081
 

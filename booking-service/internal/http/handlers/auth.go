@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
+	"net/mail"
 	"time"
 
 	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/model"
@@ -82,7 +82,7 @@ func (h *authHandler) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Email == "" || !strings.Contains(req.Email, "@") {
+	if _, err := mail.ParseAddress(req.Email); err != nil {
 		respondJSON(w, http.StatusBadRequest, errorResponse{
 			Error: errorBody{Code: codeInvalidRequest, Message: "invalid email"},
 		})

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -20,6 +21,18 @@ var (
 	dummyUserID  = uuid.MustParse("00000000-0000-0000-0000-000000000002")
 )
 
+// sentinelHash — фиктивный хеш для защиты от timing oracle в Login:
+// bcrypt-сравнение выполняется даже когда email не найден в БД.
+var sentinelHash []byte
+
+func init() {
+	h, err := bcrypt.GenerateFromPassword([]byte("sentinel"), bcrypt.DefaultCost)
+	if err != nil {
+		panic("auth: init sentinel hash: " + err.Error())
+	}
+	sentinelHash = h
+}
+
 type Service struct {
 	repo      UserRepository
 	jwtSecret string
@@ -33,7 +46,6 @@ func New(repo UserRepository, jwtSecret string, log *slog.Logger) *Service {
 		log:       log}
 }
 
-// DummyLogin выдаёт JWT для фиксированного пользователя с указанной ролью без проверки пароля.
 func (s *Service) DummyLogin(_ context.Context, role model.Role) (string, error) {
 	var userID uuid.UUID
 	switch role {
@@ -53,7 +65,6 @@ func (s *Service) DummyLogin(_ context.Context, role model.Role) (string, error)
 	return token, nil
 }
 
-// Register создаёт нового пользователя с хешированным паролем (bcrypt).
 func (s *Service) Register(ctx context.Context, email, password string, role model.Role) (model.User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -68,11 +79,15 @@ func (s *Service) Register(ctx context.Context, email, password string, role mod
 	return user, nil
 }
 
-// Login проверяет email и пароль пользователя, возвращает JWT при успехе.
 // Аккаунты без пароля (созданные через DummyLogin) не могут войти через этот метод.
 func (s *Service) Login(ctx context.Context, email, password string) (string, error) {
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
+		if errors.Is(err, model.ErrInvalidCredentials) {
+			// timing protection: всегда тратим ~то же время, что и bcrypt-сравнение
+			_ = bcrypt.CompareHashAndPassword(sentinelHash, []byte(password))
+			return "", fmt.Errorf("login: %w", model.ErrInvalidCredentials)
+		}
 		return "", fmt.Errorf("login: %w", err)
 	}
 
@@ -81,6 +96,9 @@ func (s *Service) Login(ctx context.Context, email, password string) (string, er
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.Password), []byte(password)); err != nil {
+		if !errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return "", fmt.Errorf("login: bcrypt: %w", err)
+		}
 		return "", fmt.Errorf("login: %w", model.ErrInvalidCredentials)
 	}
 

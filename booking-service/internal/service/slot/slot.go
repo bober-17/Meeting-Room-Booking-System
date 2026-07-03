@@ -56,7 +56,10 @@ func (s *Service) ListAvailableSlots(ctx context.Context, roomID uuid.UUID, date
 		return []model.Slot{}, nil
 	}
 
-	slots := generateSlots(roomID, date, schedule.StartTime, schedule.EndTime)
+	slots, err := generateSlots(roomID, date, schedule.StartTime, schedule.EndTime)
+	if err != nil {
+		return nil, fmt.Errorf("slot service: generate slots: %w", err)
+	}
 
 	if err := s.slotRepo.EnsureSlots(ctx, slots); err != nil {
 		return nil, fmt.Errorf("slot service: ensure slots: %w", err)
@@ -73,7 +76,6 @@ func (s *Service) ListAvailableSlots(ctx context.Context, roomID uuid.UUID, date
 	return available, nil
 }
 
-// isDayInSchedule проверяет, входит ли день недели даты в расписание.
 // Go: Sunday=0..Saturday=6; ISO (API): Monday=1..Sunday=7.
 func isDayInSchedule(date time.Time, daysOfWeek []int) bool {
 	isoDay := int(date.Weekday())
@@ -86,15 +88,15 @@ func isDayInSchedule(date time.Time, daysOfWeek []int) bool {
 
 // generateSlots создаёт список 30-минутных слотов для заданной комнаты и даты.
 // startTime и endTime — строки формата "HH:MM".
-func generateSlots(roomID uuid.UUID, date time.Time, startTime, endTime string) []model.Slot {
+func generateSlots(roomID uuid.UUID, date time.Time, startTime, endTime string) ([]model.Slot, error) {
 	startT, err := time.Parse("15:04", startTime)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("parse start time %q: %w", startTime, err)
 	}
 
 	endT, err := time.Parse("15:04", endTime)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("parse end time %q: %w", endTime, err)
 	}
 
 	windowStart := time.Date(date.Year(), date.Month(), date.Day(), startT.Hour(), startT.Minute(), 0, 0, time.UTC)
@@ -114,5 +116,5 @@ func generateSlots(roomID uuid.UUID, date time.Time, startTime, endTime string) 
 		})
 	}
 
-	return slots
+	return slots, nil
 }

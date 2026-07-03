@@ -3,13 +3,10 @@ package jwt
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
-
-const tokenTTL = 24 * time.Hour
 
 type Claims struct {
 	jwt.RegisteredClaims
@@ -17,29 +14,10 @@ type Claims struct {
 	Role   string    `json:"role"`
 }
 
-func GenerateToken(userID uuid.UUID, role string, secret string) (string, error) {
-	claims := Claims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenTTL)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
-		UserID: userID,
-		Role:   role,
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	signed, err := token.SignedString([]byte(secret))
-	if err != nil {
-		return "", fmt.Errorf("signing token: %w", err)
-	}
-
-	return signed, nil
-}
-
+// ParseToken валидирует JWT и возвращает userID и role из claims.
 // Возвращает ошибку при невалидной подписи, истёкшем токене или неожиданном алгоритме.
 func ParseToken(tokenString string, secret string) (uuid.UUID, string, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}

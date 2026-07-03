@@ -18,6 +18,7 @@ const (
 	defaultPage     = 1
 	defaultPageSize = 20
 	maxPageSize     = 100
+	maxPage         = 10_000
 )
 
 type BookingService interface {
@@ -88,13 +89,6 @@ func (h *bookingHandler) createBooking(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondJSON(w, http.StatusBadRequest, errorResponse{
 			Error: errorBody{Code: codeInvalidRequest, Message: "invalid request body"},
-		})
-		return
-	}
-
-	if req.SlotID == "" {
-		respondJSON(w, http.StatusBadRequest, errorResponse{
-			Error: errorBody{Code: codeInvalidRequest, Message: "slotId is required"},
 		})
 		return
 	}
@@ -186,9 +180,9 @@ func parsePagination(w http.ResponseWriter, r *http.Request) (page, pageSize int
 
 	if v := r.URL.Query().Get("page"); v != "" {
 		p, err := strconv.Atoi(v)
-		if err != nil || p < 1 {
+		if err != nil || p < 1 || p > maxPage {
 			respondJSON(w, http.StatusBadRequest, errorResponse{
-				Error: errorBody{Code: codeInvalidRequest, Message: "page must be a positive integer"},
+				Error: errorBody{Code: codeInvalidRequest, Message: "page must be a positive integer up to 10000"},
 			})
 			return 0, 0, false
 		}

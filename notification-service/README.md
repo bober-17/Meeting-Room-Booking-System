@@ -20,9 +20,9 @@ Kafka (booking.events)
   PostgreSQL (notification-db)
 
 SSE Hub (in-memory)
-  ← Register/Unregister (при подключении/отключении клиента)
+  ← Subscribe/Unsubscribe (при подключении/отключении клиента)
   ← Broadcast (из NotificationService после сохранения)
-  → send chan (goroutine per client, не блокирует Broadcast)
+  → buffered chan per client (не блокирует Broadcast)
 ```
 
 Три слоя, интерфейс объявляется на стороне потребителя:
@@ -41,6 +41,7 @@ PostgreSQL
 
 | Метод | Путь | Auth | Описание |
 |-------|------|------|----------|
+| `GET` | `/_info` | — | Проверка доступности |
 | `POST` | `/sse-token` | JWT | Получить одноразовый токен для SSE (TTL 30s) |
 | `GET` | `/notifications/stream?token=<tok>` | one-time token | SSE поток уведомлений |
 | `GET` | `/notifications` | JWT | Список уведомлений с пагинацией |
@@ -60,6 +61,7 @@ Query params: `limit` (default 20, max 100), `offset` (default 0), `unread_only`
   "notifications": [
     {
       "id": "uuid",
+      "user_id": "uuid",
       "type": "booking.created",
       "booking_id": "uuid",
       "room_name": "Переговорная 1",
@@ -75,34 +77,45 @@ Query params: `limit` (default 20, max 100), `offset` (default 0), `unread_only`
 
 ### SSE формат события
 
+При подключении сервер отправляет приветственное событие:
 ```
-data: {"id":"uuid","type":"booking.created","room_name":"Переговорная 1","slot_start":"...","is_read":false}
+event: connected
+data: {}
+```
 
+Каждое уведомление приходит как:
+```
+event: notification
+data: {"id":"uuid","user_id":"uuid","type":"booking.created","booking_id":"uuid","room_name":"Переговорная 1","slot_start":"2026-06-30T09:00:00Z","slot_end":"2026-06-30T09:30:00Z","is_read":false,"created_at":"2026-06-29T14:11:43Z"}
+```
+
+Heartbeat (keepalive) раз в 15s:
+```
+: ping
 ```
 
 ## Модель данных
 
-```sql
-CREATE TABLE IF NOT EXISTS notifications (
-    id         UUID PRIMARY KEY,
-    user_id    UUID NOT NULL,
-    type       TEXT NOT NULL CHECK (type IN ('booking.created', 'booking.cancelled')),
-    booking_id UUID NOT NULL,
-    room_name  TEXT NOT NULL,
-    slot_start TIMESTAMPTZ NOT NULL,
-    slot_end   TIMESTAMPTZ NOT NULL,
-    is_read    BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (booking_id, type)     -- идемпотентность consumer-а
-);
+Таблица `notifications`:
 
-CREATE INDEX IF NOT EXISTS idx_notifications_user_created
-    ON notifications (user_id, created_at DESC);
-```
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `id` | UUID PK | Идентификатор уведомления |
+| `user_id` | UUID NOT NULL | Получатель |
+| `type` | TEXT NOT NULL | `booking.created` или `booking.cancelled` |
+| `booking_id` | UUID NOT NULL | Связанная бронь |
+| `room_name` | TEXT NOT NULL | Название переговорки (денормализовано) |
+| `slot_start` | TIMESTAMPTZ NOT NULL | Начало слота |
+| `slot_end` | TIMESTAMPTZ NOT NULL | Конец слота (> slot_start) |
+| `is_read` | BOOLEAN NOT NULL | Прочитано, дефолт `false` |
+| `created_at` | TIMESTAMPTZ NOT NULL | Время создания, дефолт `now()` |
 
-Индекс `(user_id, created_at DESC)` покрывает `GET /notifications` — выборка по пользователю, сортировка по убыванию даты.
+Индексы:
 
-`UNIQUE (booking_id, type)` — один тип события на одну бронь. При повторной доставке из Kafka `ON CONFLICT DO NOTHING` делает операцию идемпотентной.
+| Имя | Колонки | Назначение |
+|-----|---------|------------|
+| `idx_notifications_booking_type` | `(booking_id, type)` UNIQUE | Один тип события на бронь; `ON CONFLICT DO NOTHING` делает consumer идемпотентным |
+| `idx_notifications_user_created` | `(user_id, created_at DESC)` | Покрывает `GET /notifications` — выборка по пользователю, сортировка по дате |
 
 ## Карта файлов
 
@@ -116,23 +129,27 @@ notification-service/
       errors.go                   — ErrNotificationNotFound, ErrForbidden
     service/notification/
       contract.go                 — интерфейсы Repository, Hub, NotificationService
-      service.go                  — CreateFromEvent, ListByUserID, MarkAsRead, MarkAllAsRead
+      notification.go             — CreateFromEvent, ListByUserID, MarkAsRead, MarkAllAsRead
     repo/notification/
-      repo.go                     — SQL: Create, ListByUserID, MarkAsRead, MarkAllAsRead
+      notification.go             — SQL: Create, ListByUserID, MarkAsRead, MarkAllAsRead
     kafka/
       consumer.go                 — Run(ctx): читает сообщения, вызывает service.CreateFromEvent
-    sse/
-      hub.go                      — Hub: Register/Unregister/Broadcast, goroutine per client
-    token/
-      store.go                    — InMemoryTokenStore: генерация UUID-токена, валидация, TTL 30s
+    hub/
+      hub.go                      — Hub: Subscribe/Unsubscribe/Broadcast, buffered channel per client
+      token.go                    — TokenStore: генерация UUID-токена, валидация, TTL 30s
     http/
       middleware/
         auth.go                   — JWT → user_id в context (переиспользует shared JWT_SECRET)
       handlers/
         router.go                 — chi-роутер, маршруты
         response.go               — respondJSON, respondError
+        info.go                   — GET /_info
         notification.go           — GET /notifications, POST /read, POST /read-all
         sse.go                    — POST /sse-token, GET /stream
+    pkg/jwt/
+      jwt.go                      — ParseToken (переиспользует JWT_SECRET из booking-service)
+    postgres/
+      postgres.go                 — инициализация pgxpool
   migrations/
     0001_create_notifications.up.sql
     0001_create_notifications.down.sql
@@ -144,7 +161,7 @@ notification-service/
 |---------|--------|
 | SSE вместо WebSocket | Уведомления односторонние (сервер→клиент); SSE проще, встроенный автореконнект |
 | Одноразовый токен для SSE | EventSource не поддерживает кастомные заголовки — JWT нельзя передать напрямую |
-| Токены in-memory (sync.Map + TTL 30s) | Короткоживущие, нет смысла персистировать; Redis добавил бы overhead |
+| Токены in-memory (sync.Mutex + map, TTL 30s) | Короткоживущие, нет смысла персистировать; Redis добавил бы overhead |
 | `ON CONFLICT DO NOTHING` | Гарантирует идемпотентность при at-least-once доставке из Kafka |
 | Hub с `chan` per client | Broadcast не блокируется медленными клиентами; клиент читает из канала в своей горутине |
 | Offset коммитится после DB write | Если сервис упадёт до коммита — Kafka повторит доставку; дубль безопасен |
@@ -178,7 +195,7 @@ make seed     # тестовые данные для booking-service
 ## Graceful Shutdown
 
 1. SIGTERM → ctx отменяется
-2. Kafka consumer завершает текущее сообщение, коммитит offset, закрывает reader
-3. HTTP сервер перестаёт принимать новые соединения, дожидается in-flight запросов
-4. SSE Hub закрывает все активные подключения (клиенты получат EOF и переподключатся)
+2. Параллельно: HTTP сервер перестаёт принимать новые соединения (`srv.Shutdown`, таймаут 5s); Kafka consumer завершает текущее сообщение, коммитит offset, закрывает reader
+3. Если SSE-соединения не завершились за 5s — `srv.Close()` принудительно закрывает TCP; `r.Context().Done()` в SSE-хендлерах срабатывает сразу, хендлеры завершаются
+4. Ожидание завершения consumer-горутины (`consumerWg.Wait()`)
 5. Пул БД закрывается

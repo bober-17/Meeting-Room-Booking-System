@@ -31,7 +31,6 @@ func New(bookingRepo BookingRepository, slotRepo SlotRepository, confClient Conf
 	}
 }
 
-// CreateBooking создаёт бронь на указанный слот.
 // Защита от двойного бронирования обеспечивается частичным уникальным индексом на уровне БД
 // (уникальность slot_id WHERE status = 'active'), без явных блокировок SELECT FOR UPDATE.
 // Если createConferenceLink = true — запрашивает ссылку у ConferenceClient;
@@ -59,7 +58,7 @@ func (s *Service) CreateBooking(ctx context.Context, slotID, userID uuid.UUID, c
 		if err != nil {
 			s.log.Error("booking service: create conference link", "err", err, "booking_id", booking.ID)
 		} else {
-			if err := s.bookingRepo.UpdateConferenceLink(ctx, booking.ID, link); err != nil {
+			if err := s.bookingRepo.UpdateConferenceLink(context.Background(), booking.ID, link); err != nil {
 				s.log.Error("booking service: update conference link", "err", err, "booking_id", booking.ID)
 			} else {
 				booking.ConferenceLink = &link

@@ -12,9 +12,9 @@ import (
 )
 
 const (
+	DrainTimeout       = 10 * time.Second
 	pollInterval       = 2 * time.Second
 	writerBatchTimeout = 100 * time.Millisecond
-	drainTimeout       = 10 * time.Second
 )
 
 type Relay struct {
@@ -42,9 +42,13 @@ func (r *Relay) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			drainCtx, cancel := context.WithTimeout(context.Background(), drainTimeout)
-			r.processBatch(drainCtx)
-			cancel()
+			drainCtx, cancel := context.WithTimeout(context.Background(), DrainTimeout)
+			defer cancel()
+			for drainCtx.Err() == nil {
+				if r.processBatch(drainCtx) == 0 {
+					break
+				}
+			}
 			r.logger.Info("outbox relay stopped")
 			return
 		case <-ticker.C:
@@ -53,7 +57,7 @@ func (r *Relay) Run(ctx context.Context) {
 	}
 }
 
-func (r *Relay) processBatch(ctx context.Context) {
+func (r *Relay) processBatch(ctx context.Context) int {
 	var published int
 	err := r.repo.ProcessBatch(ctx, func(records []outboxrepo.Record) error {
 		msgs := make([]kafka.Message, 0, len(records))
@@ -69,11 +73,12 @@ func (r *Relay) processBatch(ctx context.Context) {
 	})
 	if err != nil {
 		r.logger.Error("outbox process batch", "err", err)
-		return
+		return 0
 	}
 	if published > 0 {
 		r.logger.Info("outbox relay published", "count", published)
 	}
+	return published
 }
 
 func bookingIDFromPayload(payload []byte) string {

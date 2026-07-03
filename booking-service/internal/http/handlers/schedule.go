@@ -16,7 +16,6 @@ const (
 	timeParseLayout         = "15:04"
 	minDayOfWeek            = 1
 	maxDayOfWeek            = 7
-	minSlotDuration         = 30 * time.Minute
 	scheduleTimeGranularity = 30 // минуты startTime/endTime должны быть кратны этому значению
 )
 
@@ -129,13 +128,6 @@ func (h *scheduleHandler) createSchedule(w http.ResponseWriter, r *http.Request)
 	if !endT.After(startT) {
 		respondJSON(w, http.StatusBadRequest, errorResponse{
 			Error: errorBody{Code: codeInvalidRequest, Message: "endTime must be after startTime"},
-		})
-		return
-	}
-
-	if endT.Sub(startT) < minSlotDuration {
-		respondJSON(w, http.StatusBadRequest, errorResponse{
-			Error: errorBody{Code: codeInvalidRequest, Message: "time window must be at least 30 minutes"},
 		})
 		return
 	}

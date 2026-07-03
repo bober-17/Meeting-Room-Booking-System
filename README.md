@@ -191,7 +191,7 @@ curl -s -X POST http://localhost:8080/bookings/create \
   -d "{\"slotId\":\"$SLOT_ID\",\"createConferenceLink\":true}" | jq .
 ```
 
-**4. Подключиться к SSE-стриму уведомлений** *(Phase 5 — не реализовано)*
+**4. Подключиться к SSE-стриму уведомлений**
 
 ```bash
 # Сначала получить одноразовый токен (EventSource не поддерживает кастомные заголовки)
@@ -221,7 +221,7 @@ curl -N "http://localhost:8081/notifications/stream?token=$SSE_TOKEN"
 │
 ├── notification-service/     — сервис уведомлений
 │   ├── cmd/                  — точка входа
-│   ├── internal/             — Kafka consumer, REST API (SSE Hub — Phase 5)
+│   ├── internal/             — Kafka consumer, REST API, SSE Hub
 │   ├── migrations/           — схема БД
 │   ├── Dockerfile
 │   └── docker-compose.yaml   — standalone-запуск сервиса
@@ -229,11 +229,12 @@ curl -N "http://localhost:8081/notifications/stream?token=$SSE_TOKEN"
 ├── shared/
 │   └── events/               — общий Go-модуль: BookingEvent (схема Kafka-сообщения)
 │
+├── e2e/                      — системные E2E тесты (build tag: e2e_system)
+│
 ├── docker-compose.yaml       — корневой compose: Kafka, Kafka UI + include сервисов
 ├── .env.example              — шаблон переменных окружения
 ├── Makefile                  — команды для всего монорепо
-├── go.work                   — Go Workspace (booking-service, notification-service, shared/events)
-└── go.work                   — Go Workspace (booking-service, notification-service, shared/events)
+└── go.work                   — Go Workspace (booking-service, notification-service, shared/events, e2e)
 ```
 
 Go Workspace позволяет работать с модулями локально без `replace`-директив: изменения в `shared/events` сразу видны в обоих сервисах.
@@ -266,6 +267,12 @@ Go Workspace позволяет работать с модулями локал�
 | Команда | Описание |
 |---------|----------|
 | `make notification-test-integration` | Интеграционные тесты репозиториев (поднимает PostgreSQL на :5435) |
+
+### Системные тесты
+
+| Команда | Описание |
+|---------|----------|
+| `make test-e2e-system` | E2E тесты всей системы (требует `make up`) |
 
 ### Качество кода
 

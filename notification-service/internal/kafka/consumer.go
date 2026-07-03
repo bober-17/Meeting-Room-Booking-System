@@ -55,7 +55,17 @@ func (c *Consumer) Run(ctx context.Context, svc NotificationService) error {
 		}
 
 		if err := svc.CreateFromEvent(ctx, event); err != nil {
-			return fmt.Errorf("process event %s: %w", event.EventID, err)
+			// Не останавливаем consumer на ошибке обработки — иначе одно
+			// «плохое» сообщение блокирует весь топик навсегда (poison pill).
+			// Коммитим и логируем; потеря уведомления предпочтительнее бесконечной петли.
+			c.logger.ErrorContext(ctx, "failed to process event, skipping",
+				slog.String("event_id", event.EventID),
+				slog.String("error", err.Error()),
+			)
+			if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				return fmt.Errorf("commit after processing error: %w", err)
+			}
+			continue
 		}
 
 		if err := c.reader.CommitMessages(ctx, msg); err != nil {

@@ -133,7 +133,8 @@ func run() error {
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("server shutdown: %w", err)
+		// не прерываем shutdown: relay всё равно должен дренироваться до pool.Close()
+		logger.Warn("server shutdown error", "err", err)
 	}
 
 	logger.Info("server stopped")
@@ -142,7 +143,7 @@ func run() error {
 	select {
 	case <-relayDone:
 		logger.Info("outbox relay drained")
-	case <-time.After(shutdownTimeout):
+	case <-time.After(outbox.DrainTimeout):
 		logger.Warn("outbox relay drain timeout, pending records will retry on next start")
 	}
 
