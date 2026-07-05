@@ -1,0 +1,8 @@
+go 1.25.1
+
+use (
+	./booking-service
+	./e2e
+	./notification-service
+	./shared/events
+)

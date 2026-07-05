@@ -1,0 +1,53 @@
+services:
+  notification:
+    build:
+      context: ..
+      dockerfile: notification-service/Dockerfile
+    ports:
+      - "${NOTIFICATION_SERVER_PORT:-8081}:${NOTIFICATION_SERVER_PORT:-8081}"
+    environment:
+      NOTIFICATION_SERVER_PORT: ${NOTIFICATION_SERVER_PORT:-8081}
+      NOTIFICATION_DATABASE_HOST: ${NOTIFICATION_DATABASE_HOST:?NOTIFICATION_DATABASE_HOST is required}
+      NOTIFICATION_DATABASE_PORT: ${NOTIFICATION_DATABASE_PORT:-5432}
+      NOTIFICATION_DATABASE_USER: ${NOTIFICATION_DATABASE_USER:?NOTIFICATION_DATABASE_USER is required}
+      NOTIFICATION_DATABASE_PASSWORD: ${NOTIFICATION_DATABASE_PASSWORD:?NOTIFICATION_DATABASE_PASSWORD is required}
+      NOTIFICATION_DATABASE_NAME: ${NOTIFICATION_DATABASE_NAME:?NOTIFICATION_DATABASE_NAME is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      KAFKA_BROKERS: ${KAFKA_BROKERS:?KAFKA_BROKERS is required}
+      KAFKA_TOPIC_BOOKING_EVENTS: ${KAFKA_TOPIC_BOOKING_EVENTS:-booking.events}
+      KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-notification-service}
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - notify-net
+      - kafka-net
+
+  notification-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${NOTIFICATION_DATABASE_USER:?NOTIFICATION_DATABASE_USER is required}
+      POSTGRES_PASSWORD: ${NOTIFICATION_DATABASE_PASSWORD:?NOTIFICATION_DATABASE_PASSWORD is required}
+      POSTGRES_DB: ${NOTIFICATION_DATABASE_NAME:?NOTIFICATION_DATABASE_NAME is required}
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOTIFICATION_DATABASE_USER:-postgres} -d ${NOTIFICATION_DATABASE_NAME:-notifications}"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks:
+      - notify-net
+
+networks:
+  notify-net:
+    driver: bridge
+  kafka-net:
+    name: kafka-net
+    external: true
+
+volumes:
+  notification-postgres-data:

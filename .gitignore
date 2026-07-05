@@ -10,3 +10,8 @@
 *.test
 
 DECISIONS.md
+CODING_GUIDELINES.md
+RESUME.md
+
+booking-service/loadtest/results/
+loadtest/results/
