@@ -124,6 +124,8 @@ make seed
 | Booking API | http://localhost:8080 |
 | Notification API | http://localhost:8081 |
 | Kafka UI | http://localhost:8090 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (admin / admin) |
 
 Остановить и удалить данные:
 
@@ -273,6 +275,7 @@ Go Workspace позволяет работать с модулями локал�
 | Команда | Описание |
 |---------|----------|
 | `make test-e2e-system` | E2E тесты всей системы (требует `make up`) |
+| `make load-test-system` | Системный нагрузочный тест k6: 80 RPS reads + 20 RPS writes + 500 SSE (требует `make up && make seed`) |
 
 ### Качество кода
 
@@ -296,6 +299,38 @@ Go Workspace позволяет работать с модулями локал�
 
 ---
 
+## Мониторинг
+
+Стек: **Prometheus** (сбор метрик) + **Grafana** (визуализация). Поднимаются вместе с `make up`, дашборд доступен сразу без ручной настройки.
+
+| Сервис | URL |
+|--------|-----|
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 (admin / admin) |
+
+### Метрики
+
+Каждая метрика отвечает на конкретный вопрос о системе.
+
+| Метрика | Тип | Сервис | Вопрос |
+|---------|-----|--------|--------|
+| `http_request_duration_seconds{path, status}` | Histogram | оба | Выполняется ли SLA p95 < 200ms по каждому endpoint? |
+| `booking_slot_conflicts_total` | Counter | booking | Сколько раз partial unique index отбил гонку? Доказательство корректности под нагрузкой |
+| `booking_outbox_published_total` | Counter | booking | Relay работает? Должен расти вместе с бронями 1:1 |
+| `booking_outbox_errors_total` | Counter | booking | Есть ли потери в Kafka pipeline? |
+| `notification_delivery_latency_seconds` | Histogram | notification | E2E от события до SSE-broadcast; показывает вклад outbox poll interval |
+| `notification_sse_connections_active` | Gauge | notification | Текущее число SSE-соединений на Hub |
+| `notification_kafka_consumer_errors_total` | Counter | notification | Consumer падает? Любое ненулевое значение — инцидент |
+
+### Дашборд
+
+Три секции:
+- **HTTP SLA** — p95 latency и error rate по endpoint обоих сервисов
+- **Async pipeline** — outbox published rate, E2E delivery latency (p50 / p95), SSE connections
+- **Correctness** — slot conflicts rate под нагрузкой
+
+---
+
 ## Производительность и требования
 
 Ключевые числа, которые определили архитектурные решения. Полное обоснование — в [REQUIREMENTS.md](REQUIREMENTS.md).
@@ -316,7 +351,7 @@ Go Workspace позволяет работать с модулями локал�
 | Суммарный RPS (booking-service) | 100 |
 | Read / Write | 80 / 20 |
 | Пиковых событий в Kafka | ~20/сек |
-| Concurrent SSE-соединений | ~500 |
+| Concurrent SSE-соединений | ~100 |
 
 ### SLA
 
@@ -324,7 +359,7 @@ Go Workspace позволяет работать с модулями локал�
 |---------|------|
 | Availability booking-service | 99.9% |
 | Latency `GET /slots` p95 | < 200ms |
-| Delivery latency уведомления p95 | < 1s |
+| Delivery latency уведомления p95 | < 3s |
 
 ### Гарантии доставки
 

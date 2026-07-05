@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/http/middleware"
+	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/metrics"
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/model"
 )
 
@@ -82,6 +83,8 @@ func (h *sseHandler) streamNotifications(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer unsubscribe()
+	metrics.SSEConnectionsActive.Inc()
+	defer metrics.SSEConnectionsActive.Dec()
 
 	_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 	if _, err := fmt.Fprintf(w, "event: connected\ndata: {}\n\n"); err != nil {

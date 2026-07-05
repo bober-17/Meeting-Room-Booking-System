@@ -8,6 +8,7 @@ import (
 
 	"github.com/segmentio/kafka-go"
 
+	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/metrics"
 	outboxrepo "github.com/bober-17/meeting-room-booking-system/booking-service/internal/repo/outbox"
 )
 
@@ -73,10 +74,12 @@ func (r *Relay) processBatch(ctx context.Context) int {
 	})
 	if err != nil {
 		r.logger.Error("outbox process batch", "err", err)
+		metrics.OutboxErrorsTotal.Inc()
 		return 0
 	}
 	if published > 0 {
 		r.logger.Info("outbox relay published", "count", published)
+		metrics.OutboxPublishedTotal.Add(float64(published))
 	}
 	return published
 }

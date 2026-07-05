@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/http/middleware"
+	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/metrics"
 	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/model"
 )
 
@@ -103,6 +105,9 @@ func (h *bookingHandler) createBooking(w http.ResponseWriter, r *http.Request) {
 
 	booking, err := h.svc.CreateBooking(r.Context(), slotID, userID, req.CreateConferenceLink)
 	if err != nil {
+		if errors.Is(err, model.ErrSlotAlreadyBooked) {
+			metrics.SlotConflictsTotal.Inc()
+		}
 		respondError(w, err)
 		return
 	}

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 
+	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/metrics"
 	"github.com/bober-17/meeting-room-booking-system/shared/events"
 )
 
@@ -48,6 +50,7 @@ func (c *Consumer) Run(ctx context.Context, svc NotificationService) error {
 				slog.Int64("offset", msg.Offset),
 				slog.String("error", err.Error()),
 			)
+			metrics.KafkaConsumerErrorsTotal.Inc()
 			if err := c.reader.CommitMessages(ctx, msg); err != nil {
 				return fmt.Errorf("commit after invalid payload: %w", err)
 			}
@@ -62,11 +65,17 @@ func (c *Consumer) Run(ctx context.Context, svc NotificationService) error {
 				slog.String("event_id", event.EventID),
 				slog.String("error", err.Error()),
 			)
+			metrics.KafkaConsumerErrorsTotal.Inc()
 			if err := c.reader.CommitMessages(ctx, msg); err != nil {
 				return fmt.Errorf("commit after processing error: %w", err)
 			}
 			continue
 		}
+
+		if !event.OccurredAt.IsZero() {
+			metrics.DeliveryLatency.Observe(time.Since(event.OccurredAt).Seconds())
+		}
+		metrics.KafkaConsumedTotal.Inc()
 
 		if err := c.reader.CommitMessages(ctx, msg); err != nil {
 			return fmt.Errorf("commit message: %w", err)

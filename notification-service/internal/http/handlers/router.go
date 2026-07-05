@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/bober-17/meeting-room-booking-system/notification-service/internal/http/middleware"
 )
@@ -14,6 +15,10 @@ const requestTimeout = 4 * time.Second
 
 func NewRouter(jwtSecret string, hub sseHub, tokens tokenStore, svc notificationService) http.Handler {
 	r := chi.NewRouter()
+
+	r.Use(middleware.Metrics)
+
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	sseH := newSSEHandler(hub, tokens)
 	notifH := &notificationHandler{svc: svc}

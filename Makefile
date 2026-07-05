@@ -7,7 +7,7 @@ export
         booking-test booking-test-integration booking-test-e2e \
         notification-test-integration \
         test-e2e-system \
-        lint booking-mock booking-load-test
+        lint booking-mock booking-load-test load-test-system
 
 # ── Инфраструктура ────────────────────────────────────────────────────────────
 
@@ -80,6 +80,14 @@ booking-load-test:
 		--user $(shell id -u):$(shell id -g) \
 		-v $(shell pwd)/booking-service/loadtest:/loadtest \
 		grafana/k6 run - < booking-service/loadtest/script.js
+
+load-test-system:
+	@echo "Сервисы должны быть запущены: make up && make seed"
+	@mkdir -p loadtest/results
+	docker run --rm -i --network host \
+		--user $(shell id -u):$(shell id -g) \
+		-v $(shell pwd)/loadtest:/loadtest \
+		grafana/k6 run - < loadtest/system.js
 
 # ── notification-service ──────────────────────────────────────────────────────
 

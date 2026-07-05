@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/http/middleware"
 	"github.com/bober-17/meeting-room-booking-system/booking-service/internal/model"
@@ -26,8 +27,11 @@ func NewRouter(
 ) http.Handler {
 	r := chi.NewRouter()
 
+	r.Use(middleware.Metrics)
 	r.Use(chimiddleware.Timeout(requestTimeout))
 	r.Use(chimiddleware.Recoverer)
+
+	r.Get("/metrics", promhttp.Handler().ServeHTTP)
 
 	auth := newAuthHandler(authSvc)
 	room := newRoomHandler(roomSvc)
